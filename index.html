@@ -108,20 +108,11 @@ body[data-ph=lobby] .sheet,body[data-ph=lobby] .bar,body[data-ph=count] .sheet,b
 </div>
 <details><summary>How to play</summary>
 <p>Players alternate. On your turn, press on a spot and drag to another spot (or back to the same spot to make a loop). The curve may not cross any line, itself included, or pass through another spot. A new spot is then placed at the middle of your curve.</p>
-<p>The board is endless. Scroll or pinch to zoom, and drag empty space to move the view. Lines are elastic: between moves they pull straight and push each other apart, so the drawing keeps rearranging itself and never clogs.</p>
-<p>Each spot can have at most 3 lines. The number inside a spot is how many it can still take; a filled spot is full. The player who cannot move loses.</p>
-<p>Both players start in the lobby: choose the rules, then each press Ready. Once both are ready the match begins, a quick draw picks who moves first, and names and rules stay locked. The host can set the clock to any number of minutes (0 for no limit). Each player has a clock that runs only on their turn, and running out of time loses the game. Use the Dark mode button at the top to switch themes.</p>
 </details>
 <details id="net"><summary>Play on two devices (P2P / WebRTC Manual)</summary>
-<div class="row"><button id="rmk" class="pri">Create room</button><span>or</span><input id="rin" maxlength="40" placeholder="ROOM CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Room code"><button id="rjn">Join room</button></div>
-<div class="row"><label><input type="checkbox" id="stun"> Different networks (needs internet)</label></div>
-<div class="row" id="rbox" hidden><span>Room</span><input id="rcode" class="big" readonly size="7" aria-label="Your room code"><button id="rcpy">Copy code</button><button id="rlnk" hidden>Copy link</button><button id="rshr" hidden>Share</button></div>
+<div class="row"><button id="rmk" class="pri">Create room</button><span>or</span><input id="rin" maxlength="40" placeholder="ROOM CODE" autocomplete="off"><button id="rjn">Join room</button></div>
 <p id="ns" role="status"></p>
-<details id="man"><summary>Connect manually (no relay needed)</summary>
-<div class="row"><button id="host">Host</button><button id="join">Join</button></div>
-<label for="o">Code to send</label><textarea id="o" readonly></textarea><div class="row"><button id="cp">Copy</button><button id="sh" hidden>Share</button></div>
-<label for="i">Code received</label><textarea id="i" placeholder="Paste the invite or reply here"></textarea><div class="row"><button id="pa">Paste</button><button id="go" disabled>Connect</button></div>
-</details></details>
+</details>
 </main>
 
 <script>
@@ -129,48 +120,39 @@ const socket = typeof io !== 'undefined' ? io() : null;
 const $=id=>document.getElementById(id),cv=$('c'),g=cv.getContext('2d');
 const W=900,H=600,R=11,D=2;cv.width=W*D;cv.height=H*D;
 const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim(),pc=p=>css(p?'--p2':'--p1');
-let spots,lines,turn,over,hist,cur,dc,pc2,go=false,tout=false,lim=0,clk=[0,0],last=0,lt=0,hov=-1,me=-1,seat=-1,run=false,fc=0,pan=null,pv=null,cam={x:0,y:0,z:1};
+let spots=[],lines=[],turn=0,over=false,hist=[],cur=null,dc=null,pc2=null,go=false,tout=false,lim=0,clk=[0,0],last=0,lt=0,hov=-1,me=-1,seat=-1,run=false,fc=0,pan=null,pv=null,cam={x:0,y:0,z:1};
 const names=['Player 1','Player 2'],ptr=new Map();
 let ph='lobby',rdy=[false,false],cdt=0,rz=false,rzA=false,ended=false,warned=false,lsec=-1,bt=0,fxr=false,mute=false,ac;const fx=[];
 try{mute=localStorage.getItem('sp-mute')=='1'}catch(e){}
 
 function tone(f,d=.12,ty='sine',v=.15,at=0,f2){if(mute)return;try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();if(ac.state=='suspended')ac.resume();const t=ac.currentTime+at,o=ac.createOscillator(),a=ac.createGain();o.type=ty;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);a.gain.setValueAtTime(.0001,t);a.gain.exponentialRampToValueAtTime(v,t+.01);a.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(a);a.connect(ac.destination);o.start(t);o.stop(t+d+.05)}catch(e){}}
 const SND={
- tick:()=>tone(900,.04,'square',.03),ready:()=>{tone(520,.08,'triangle',.15);tone(780,.1,'triangle',.15,.07)},unready:()=>tone(520,.1,'triangle',.12,0,330),
- cd:()=>tone(440,.15,'sine',.2),chime:()=>{tone(784,.3,'triangle',.18);tone(1175,.4,'triangle',.14,.08)},
+ tick:()=>tone(900,.04,'square',.03),ready:()=>{tone(520,.08,'triangle',.15);tone(780,.1,'triangle',.15,.07)},
  go:()=>[523,659,784,1047].forEach((f,i)=>tone(f,.25,'triangle',.18,i*.09)),
  move:()=>tone(300,.18,'sine',.2,0,600),
- sat:()=>{tone(300,.18,'sine',.2,0,600);tone(1200,.3,'triangle',.15,.1,1800);tone(1800,.25,'sine',.08,.18)},
- low:h=>tone(h?1400:1000,.09,'square',.07),warn:()=>{tone(700,.15,'sawtooth',.08);tone(700,.15,'sawtooth',.08,.2)},
- win:()=>[523,659,784,1047,1319].forEach((f,i)=>tone(f,.3,'triangle',.18,i*.1)),lose:()=>[392,330,262,196].forEach((f,i)=>tone(f,.35,'sawtooth',.09,i*.14)),
- buzz:()=>tone(120,.5,'sawtooth',.15),bad:()=>tone(160,.08,'square',.06)};
+ sat:()=>{tone(300,.18,'sine',.2,0,600);tone(1200,.3,'triangle',.15,.1,1800)},
+ win:()=>[523,659,784,1047,1319].forEach((f,i)=>tone(f,.3,'triangle',.18,i*.1)),
+ lose:()=>[392,330,262,196].forEach((f,i)=>tone(f,.35,'sawtooth',.09,i*.14)),bad:()=>tone(160,.08,'square',.06)};
 const snd=(k,a)=>SND[k]&&SND[k](a);
 function setMute(v){mute=v;try{localStorage.setItem('sp-mute',v?'1':'0')}catch(e){}$('mu').textContent=v?'🔇 Sound off':'🔊 Sound on'}
 
 function banner(t,c,ms=1100){const e=$('bn'),b=document.createElement('b');b.textContent=t;e.style.setProperty('--c',c||'');e.style.setProperty('--d',ms+'ms');e.replaceChildren(b);e.hidden=false;clearTimeout(bt);bt=setTimeout(()=>e.hidden=true,ms)}
 function burst(x,y,col,n=14,v=2.5,life=700,ring=1){const t=performance.now();if(ring)fx.push({x,y,col,t,life,ring:1});for(let i=0;i<n;i++){const a=Math.random()*6.283,s=v*(.4+Math.random());fx.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,col,t,life:life*(.6+Math.random()*.6)})}if(!fxr){fxr=true;requestAnimationFrame(fxStep)}}
 function fxStep(){const now=performance.now();for(let i=fx.length;i--;)if(now-fx[i].t>fx[i].life)fx.splice(i,1);draw();if(fx.length)requestAnimationFrame(fxStep);else fxr=false}
-function satFx(pd,col){let n=0;spots.forEach((s,i)=>{if(i<pd.length&&s.d>=3&&pd[i]<3){n++;burst(s.x,s.y,col)}});const m=spots[spots.length-1];burst(m.x,m.y,col,6,1.2,500,0);snd(n?'sat':'move')}
-function endFx(){const w=turn^1,col=pc(w),mine=seat<0||seat==w;lt++;if(tout)snd('buzz');setTimeout(()=>snd(mine?'win':'lose'),tout?500:0);
+function satFx(pd,col){let n=0;spots.forEach((s,i)=>{if(i<pd.length&&s.d>=3&&pd[i]<3){n++;burst(s.x,s.y,col)}});const m=spots[spots.length-1];if(m)burst(m.x,m.y,col,6,1.2,500,0);snd(n?'sat':'move')}
+function endFx(){const w=turn^1,col=pc(w);lt++;
  banner((rz?'Resigned! ':tout?'Time is up! ':'')+names[w]+' wins!',col,3200);
- for(let k=0;k<6;k++)setTimeout(()=>{const q=wld([Math.random()*W,Math.random()*H]);burst(q[0],q[1],col,18,3,1000)},k*180);
  if(socket && seat >= 0) socket.emit('game_over', { winner: w });
 }
 
 function setPh(p){ph=p;document.body.dataset.ph=p;lobbyUI()}
 function lobbyUI(){
   const L=ph=='lobby';
-  [0,1].forEach(i=>{const b=$('r'+i);b.hidden=ph=='play';b.classList.toggle('on',rdy[i]);b.textContent=rdy[i]?'✓ Ready':'Ready?';b.disabled=!L||(seat>=0&&i!=seat);
-    $('p'+i).disabled=!L||rdy[i]||(seat>=0&&i!=seat)});
+  [0,1].forEach(i=>{$('p'+i).disabled=!L||(seat>=0&&i!=seat)});
   $('n').disabled=$('tm').disabled=!L||seat==1;
-  $('lm').textContent=seat<0?'Both players press Ready to start. Playing on two devices? Open “Play on two devices” below.':'Online: you are '+names[seat]+' ('+(seat?'blue':'red')+'). '+(seat?'The host chooses the rules.':'You choose the rules.')
 }
-function setRdy(i,v){rdy[i]=v;snd(v?'ready':'unready');lobbyUI();info();if(ph=='lobby'&&rdy[0]&&rdy[1]&&seat!=1){send({t:'count'});runCount()}}
-function runCount(){
-  setPh('count');const e=$('cd'),b=document.createElement('b');b.textContent='Match begin';e.replaceChildren(b);e.hidden=false;snd('chime');info();
-  cdt=setTimeout(()=>{e.hidden=true;if(seat!=1)newGame()},1100);
-}
-function toLobby(s){if(s)send({t:'lobby'});clearTimeout(cdt);lt++;$('lot').hidden=$('cd').hidden=$('bn').hidden=true;spots=[];lines=[];hist=[];fx.length=0;over=tout=rz=go=false;cur=null;rdy=[false,false];setPh('lobby');info();draw();resetMatchBtn();}
+
+function toLobby(){lt++;$('lot').hidden=$('cd').hidden=$('bn').hidden=true;spots=[];lines=[];hist=[];fx.length=0;over=tout=rz=go=false;cur=null;rdy=[false,false];setPh('lobby');info();draw();resetMatchBtn();}
 function resign(i){if(over||ph!='play')return;lt++;$('lot').hidden=true;go=true;turn=i;rz=true;over=true;tout=false;cur=null;info();draw()}
 const lives=s=>3-s.d,len=P=>P.reduce((t,q,i)=>i?t+Math.hypot(q[0]-P[i-1][0],q[1]-P[i-1][1]):0,0);
 const cr=(a,b,c)=>(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0]);
@@ -182,15 +164,6 @@ function zoomAt(q,z){const w=wld(q);cam.z=Math.min(4,Math.max(.15,z));cam.x=w[0]
 function bbox(){let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;const a=(x,y)=>{x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y)};spots.forEach(s=>a(s.x,s.y));lines.forEach(l=>l.p.forEach(q=>a(q[0],q[1])));return[x0,y0,x1,y1]}
 function fit(){const[x0,y0,x1,y1]=bbox();cam={x:(x0+x1)/2,y:(y0+y1)/2,z:Math.max(.15,Math.min(1.5,.85*Math.min(W/(x1-x0+90),H/(y1-y0+90))))};draw()}
 
-function newGame(){
-  const n=+$('n').value;spots=[];lines=[];hist=[];over=tout=false;cur=null;rz=ended=warned=false;lsec=-1;fx.length=0;setPh('play');
-  lim=Math.round(Math.max(0,+$('tm').value||0)*60000);clk=[lim,lim];turn=Math.random()<.5?0:1;
-  for(let t=0;spots.length<n&&t<2000;t++){
-    const p={x:(Math.random()-.5)*(W-140),y:(Math.random()-.5)*(H-140),d:0};
-    if(spots.every(s=>Math.hypot(s.x-p.x,s.y-p.y)>(t>1000?70:130)))spots.push(p);
-  }
-  cam={x:0,y:0,z:1};info();draw();send({t:'state',s:pack(),lot:1});lottery(turn);
-}
 function lottery(target){
   const o=$('lot'),sp=[$('l0'),$('l1')],tk=++lt;go=false;o.hidden=false;
   sp.forEach((e,i)=>{e.textContent=names[i];e.classList.remove('hl')});
@@ -203,26 +176,12 @@ function lottery(target){
   };
   step();
 }
-const fmt=ms=>{const s=Math.ceil(ms/1000);return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')};
-function clocks(){const pl=ph=='play';[0,1].forEach(i=>{const e=$('k'+i);e.textContent=!pl?'':lim?fmt(clk[i]):'∞';e.classList.toggle('low',pl&&!!lim&&go&&!over&&turn==i&&clk[i]<30000)});$('sheet').classList.toggle('warn',pl&&!!lim&&go&&!over&&clk[turn]<10000)}
-function clockTick(){
-  const now=performance.now();
-  if(go&&!over&&lim){clk[turn]-=now-last;if(clk[turn]<=0){clk[turn]=0;over=tout=true;cur=null;info();draw()}else{const s=Math.ceil(clk[turn]/1000);if(s!=lsec){lsec=s;if(s<=10)snd('low',s<=3);else if(s==30)snd('warn')}}}
-  last=now;clocks();
-}
-function th(t){document.documentElement.dataset.theme=t;try{localStorage.setItem('sp-theme',t)}catch(e){}$('th').textContent=t=='dark'?'☀ Light mode':'☾ Dark mode';if(spots)draw()}
-const snap=()=>JSON.stringify({spots,lines,turn});
-function undo(){if(!hist.length||tout||!go)return;({spots,lines,turn}=JSON.parse(hist.pop()));over=false;cur=null;info();draw();wake()}
 
 function legal(a,b,s,t){
   const P=cur.path;
   for(const l of lines)for(let i=0;i<l.p.length-1;i++)if(cross(a,b,l.p[i],l.p[i+1]))return false;
   for(let i=0;i<P.length-2;i++)if(cross(a,b,P[i],P[i+1]))return false;
   for(let k=0;k<spots.length;k++)if(k!=s&&k!=t&&pd([spots[k].x,spots[k].y],a,b)<R+3)return false;
-  if(t<0&&!spots.some(q=>Math.hypot(q.x-b[0],q.y-b[1])<R+10)){
-    for(const l of lines)for(let i=0;i<l.p.length-1;i++)if(pd(b,l.p[i],l.p[i+1])<5)return false;
-    for(let i=0;i<P.length-8;i++)if(pd(b,P[i],P[i+1])<5)return false;
-  }
   return true;
 }
 function extend(q){
@@ -241,9 +200,10 @@ function extend(q){
     if(ok&&legal(a,c,cur.s,k)){P.push(c);commit(k);return}
   }
 }
+
 function commit(k){
-  clockTick();if(over){cur=null;return}
-  const P=cur.path,s=cur.s,ni=spots.length,pd=spots.map(q=>q.d);hist.push(snap());
+  if(over)return;
+  const P=cur.path,s=cur.s,ni=spots.length,pd=spots.map(q=>q.d);
   let L=len(P)/2,i=0,m=P[P.length-1];
   for(;i<P.length-1;i++){
     const d=Math.hypot(P[i+1][0]-P[i][0],P[i+1][1]-P[i][1]);
@@ -251,50 +211,10 @@ function commit(k){
     L-=d;
   }
   const e1={p:[...P.slice(0,i+1),m],a:s,b:ni,c:turn},e2={p:[m,...P.slice(i+1)],a:ni,b:k,c:turn};
-  spots[s].d++;spots[k].d++;spots.push({x:m[0],y:m[1],d:2});lines.push(e1,e2);rs(e1,10);rs(e2,10);satFx(pd,pc(turn));
-  cur=null;turn^=1;last=performance.now();over=!movesLeft();send({t:'state',s:pack()});info();draw();wake();
-}
-
-const bad=(p,self)=>lines.some(l=>l!=self&&l.p.some((q,i)=>i&&p.some((r,j)=>j&&cross(p[j-1],r,l.p[i-1],q))));
-function rs(l,h=12){
-  const p=l.p,c=[0];let T=0;
-  for(let i=1;i<p.length;i++)c.push(T+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]));
-  l.L=T;const n=Math.max(3,Math.round(T/h)+1),o=[p[0]];
-  for(let k=1,j=1;k<n-1;k++){const t=T*k/(n-1);while(c[j]<t)j++;const u=(t-c[j-1])/((c[j]-c[j-1])||1);o.push([p[j-1][0]+(p[j][0]-p[j-1][0])*u,p[j-1][1]+(p[j][1]-p[j-1][1])*u])}
-  o.push(p[p.length-1]);if(!bad(o,l))l.p=o;
-}
-function relax(){
-  let mv=0;const hash=new Map(),HC=40;
-  lines.forEach((l,e)=>{const A=spots[l.a],B=spots[l.b],z=l.p[l.p.length-1];l.p[0][0]=A.x;l.p[0][1]=A.y;z[0]=B.x;z[1]=B.y;
-    l.p.forEach((q,i)=>{if(i&&i<l.p.length-1){const k=Math.floor(q[0]/HC)*65536+Math.floor(q[1]/HC);if(!hash.has(k))hash.set(k,[]);hash.get(k).push([e,i])}})});
-  const near=(x,y,f)=>{const cx=Math.floor(x/HC),cy=Math.floor(y/HC);for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++){const L=hash.get((cx+a)*65536+cy+b);if(L)L.forEach(f)}};
-  const segOK=(A,B)=>{let ok=true;near((A[0]+B[0])/2,(A[1]+B[1])/2,([f,j])=>{if(!ok)return;const q=lines[f].p;if(cross(A,B,q[j-1],q[j])||cross(A,B,q[j],q[j+1]))ok=false});return ok};
-  const push=(o,kx,ky,fx,fy,test)=>{const m=Math.hypot(fx,fy);if(m>9){fx*=9/m;fy*=9/m}o[kx]+=fx;o[ky]+=fy;if(test())mv=Math.max(mv,Math.hypot(fx,fy));else{o[kx]-=fx;o[ky]-=fy}};
-  const rep=(x,y,ox,oy,r,k)=>{const dx=x-ox,dy=y-oy,dd=Math.hypot(dx,dy);return dd<r&&dd>.01?[dx*k*(r-dd)/dd,dy*k*(r-dd)/dd]:[0,0]};
-  lines.forEach((l,e)=>{const p=l.p,n=p.length;
-    for(let i=1;i<n-1;i++){const q=p[i];
-      let fx=.5*((p[i-1][0]+p[i+1][0])/2-q[0]),fy=.5*((p[i-1][1]+p[i+1][1])/2-q[1]);
-      near(q[0],q[1],([f,j])=>{if(f==e&&Math.abs(j-i)<5)return;const o=lines[f].p[j],r=rep(q[0],q[1],o[0],o[1],34,.5);fx+=r[0];fy+=r[1]});
-      spots.forEach((s,si)=>{if(l.a==si||l.b==si)return;const r=rep(q[0],q[1],s.x,s.y,44,.4);fx+=r[0];fy+=r[1]});
-      push(q,0,1,fx,fy,()=>segOK(p[i-1],q)&&segOK(q,p[i+1]));
-    }});
-  spots.forEach((s,si)=>{
-    let fx=0,fy=0;
-    lines.forEach(l=>{if(l.a==si){const o=l.p[1];fx+=.12*(o[0]-s.x);fy+=.12*(o[1]-s.y)}if(l.b==si){const o=l.p[l.p.length-2];fx+=.12*(o[0]-s.x);fy+=.12*(o[1]-s.y)}});
-    near(s.x,s.y,([f,j])=>{const L=lines[f];if(L.a==si||L.b==si)return;const o=L.p[j],r=rep(s.x,s.y,o[0],o[1],44,.4);fx+=r[0];fy+=r[1]});
-    spots.forEach((t,ti)=>{if(ti!=si){const r=rep(s.x,s.y,t.x,t.y,90,.25);fx+=r[0];fy+=r[1]}});
-    const sy=()=>lines.forEach(l=>{if(l.a==si){l.p[0][0]=s.x;l.p[0][1]=s.y}if(l.b==si){const z=l.p[l.p.length-1];z[0]=s.x;z[1]=s.y}});
-    push(s,'x','y',fx,fy,()=>{sy();return lines.every(l=>(l.a!=si||segOK(l.p[0],l.p[1]))&&(l.b!=si||segOK(l.p[l.p.length-2],l.p[l.p.length-1])))});
-    sy();
-  });
-  if(++fc%30==0)lines.forEach(l=>{if(!l.L||Math.abs(len(l.p)-l.L)>.25*l.L)rs(l)});
-  return mv;
-}
-function wake(){if(!run){run=true;requestAnimationFrame(tick)}}
-function tick(){
-  run=false;if(cur||!lines.length)return;
-  let m=0;const it=lines.reduce((t,l)=>t+l.p.length,0)<900?4:2;for(let k=0;k<it;k++)m=Math.max(m,relax());
-  draw();if(m>.05)wake();
+  spots[s].d++;spots[k].d++;spots.push({x:m[0],y:m[1],d:2});lines.push(e1,e2);
+  cur=null;turn^=1;over=!movesLeft();
+  if(socket && seat >= 0) socket.emit('game_action', { t:'state', spots, lines, turn, over });
+  info();draw();wake();
 }
 
 function movesLeft(){
@@ -303,7 +223,7 @@ function movesLeft(){
   const m=document.createElement('canvas');m.width=w;m.height=hh;
   const h=m.getContext('2d',{willReadFrequently:true});
   h.fillStyle='#fff';h.fillRect(0,0,w,hh);h.setTransform(sc,0,0,sc,-x0*sc,-y0*sc);
-  h.strokeStyle=h.fillStyle='#000';h.lineWidth=Math.max(3,2/sc);h.lineJoin=h.lineCap='round';
+  h.strokeStyle=h.fillStyle='#000';h.lineWidth=Math.max(3,2/sc);
   for(const l of lines){h.beginPath();l.p.forEach((q,i)=>i?h.lineTo(q[0],q[1]):h.moveTo(q[0],q[1]));h.stroke()}
   for(const s of spots){h.beginPath();h.arc(s.x,s.y,R+1,0,7);h.fill()}
   const px=h.getImageData(0,0,w,hh).data,N=w*hh,lab=new Int32Array(N),st=new Int32Array(N);let n=0;
@@ -331,15 +251,13 @@ function movesLeft(){
   return Object.values(reg).some(v=>v.size>1||v.loop);
 }
 
+function wake(){ requestAnimationFrame(draw); }
+
 function info(){
-  const e=$('st'),mv=lines.length/2,t=x=>document.createTextNode(x),w=over?turn^1:-1;
-  [0,1].forEach(i=>{$('c'+i).classList.toggle('on',over?w==i:go&&turn==i);const tg=[seat==i?'you':'',w==i?'winner':''].filter(Boolean).join(' · '),el=$('t'+i);el.textContent=tg;el.hidden=!tg});
+  const e=$('st'),w=over?turn^1:-1;
+  [0,1].forEach(i=>{$('c'+i).classList.toggle('on',over?w==i:go&&turn==i)});
   const b=p=>{const x=document.createElement('b');x.style.color=pc(p);x.textContent=names[p];return x};
-  e.replaceChildren(...(over?(rz?[b(turn),t(' resigned. '),b(turn^1),t(' wins!')]:tout?[b(turn),t(' ran out of time. '),b(turn^1),t(' wins!')]:[b(turn^1),t(' wins after '+mv+' moves. '),b(turn),t(' has no move left.')])
-    :ph!='play'?[t(ph=='count'?'Match begin':rdy[0]&&rdy[1]?'Starting…':rdy[0]||rdy[1]?names[rdy[0]?0:1]+' is ready. Waiting for '+names[rdy[0]?1:0]+'.':'Choose the rules, then both players press Ready.')]:!go?[t('Choosing who moves first…')]
-    :seat>=0&&turn!=seat?[t('Waiting for '),b(turn),t(' to move…')]
-    :[b(turn),t((seat>=0?', your turn: ':': ')+'draw a curve between two spots, or loop one back to itself. Moves so far: '+mv+'.')]));
-  clocks();$('nw').textContent=over?'Back to lobby':rzA?'Sure? Resign':'Resign';$('nw').disabled=ph!='play'||(!over&&!go);
+  e.replaceChildren(...(over?[b(turn^1),document.createTextNode(' wins!')]:!go?[document.createTextNode('Starting…')]:[b(turn),document.createTextNode(' turn.')]));
   if(over&&ph=='play'&&!ended){ended=true;endFx()}
 }
 
@@ -347,22 +265,16 @@ function draw(){
   g.setTransform(D,0,0,D,0,0);g.clearRect(0,0,W,H);
   g.setTransform(D*cam.z,0,0,D*cam.z,D*(W/2-cam.x*cam.z),D*(H/2-cam.y*cam.z));
   g.lineCap=g.lineJoin='round';
-  const ink=css('--ink'),paper=css('--paper'),gs=30*cam.z<9?150:30,vx=W/2/cam.z,vy=H/2/cam.z;
-  g.lineWidth=1/cam.z;g.strokeStyle=css('--grid');g.beginPath();
-  for(let x=Math.ceil((cam.x-vx)/gs)*gs;x<=cam.x+vx;x+=gs){g.moveTo(x,cam.y-vy);g.lineTo(x,cam.y+vy)}
-  for(let y=Math.ceil((cam.y-vy)/gs)*gs;y<=cam.y+vy;y+=gs){g.moveTo(cam.x-vx,y);g.lineTo(cam.x+vx,y)}
-  g.stroke();g.lineWidth=3.5;
+  const ink=css('--ink'),paper=css('--paper');
+  g.lineWidth=3.5;
   const path=p=>{g.beginPath();p.forEach((q,i)=>i?g.lineTo(q[0],q[1]):g.moveTo(q[0],q[1]));g.stroke()};
   for(const l of lines){g.strokeStyle=pc(l.c);path(l.p)}
   if(cur){
     g.strokeStyle=pc(turn);path(cur.path);
     if(cur.q){g.strokeStyle=cur.bad?'#e03131':pc(turn);g.setLineDash([2,7]);path([cur.path[cur.path.length-1],cur.q]);g.setLineDash([])}
   }
-  {const now=performance.now();for(const f of fx){const k=Math.min(1,(now-f.t)/f.life);g.globalAlpha=1-k;if(f.ring){g.beginPath();g.arc(f.x,f.y,R+k*46,0,7);g.strokeStyle=f.col;g.lineWidth=4*(1-k)+1;g.stroke()}else{g.fillStyle=f.col;g.beginPath();g.arc(f.x+f.vx*k*40,f.y+f.vy*k*40,3*(1-k)+1,0,7);g.fill()}}g.globalAlpha=1;g.lineWidth=3.5}
-  g.font='600 12px Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif';g.textAlign='center';g.textBaseline='middle';
   spots.forEach((s,i)=>{
     const l=lives(s);
-    if(i==hov||(cur&&i==cur.s)){g.beginPath();g.arc(s.x,s.y,R+7,0,7);g.fillStyle=pc(turn)+'33';g.fill()}
     g.beginPath();g.arc(s.x,s.y,R,0,7);g.fillStyle=l?paper:ink;g.fill();
     g.lineWidth=2.5;g.strokeStyle=ink;g.stroke();g.lineWidth=3.5;
     if(l){g.fillStyle=ink;g.fillText(l,s.x,s.y+1)}
@@ -373,37 +285,21 @@ const canPlay=()=>go&&!over&&!(seat>=0&&turn!=seat);
 const hit=w=>canPlay()?spots.findIndex(p=>lives(p)>0&&Math.hypot(p.x-w[0],p.y-w[1])<Math.max(R+8,16/cam.z)):-1;
 cv.onpointerdown=e=>{
   cv.setPointerCapture(e.pointerId);const q=pos(e);ptr.set(e.pointerId,q);
-  if(ptr.size>1){cur=null;pan=null;const[a,b]=[...ptr.values()];pv={d:Math.hypot(a[0]-b[0],a[1]-b[1])||1,m:[(a[0]+b[0])/2,(a[1]+b[1])/2]};draw();return}
   const s=hit(wld(q));
   if(s>=0)cur={s,path:[[spots[s].x,spots[s].y]]};
-  else{pan={q,x:cam.x,y:cam.y};cv.style.cursor='grabbing'}
+  else{pan={q,x:cam.x,y:cam.y}}
   draw();
 };
 cv.onpointermove=e=>{
-  const q=pos(e);if(ptr.has(e.pointerId))ptr.set(e.pointerId,q);
-  if(ptr.size>1&&pv){
-    const[a,b]=[...ptr.values()],d=Math.hypot(a[0]-b[0],a[1]-b[1])||1,m=[(a[0]+b[0])/2,(a[1]+b[1])/2];
-    zoomAt(m,cam.z*d/pv.d);cam.x-=(m[0]-pv.m[0])/cam.z;cam.y-=(m[1]-pv.m[1])/cam.z;pv={d,m};draw();return;
-  }
+  const q=pos(e);
   if(pan){cam.x=pan.x-(q[0]-pan.q[0])/cam.z;cam.y=pan.y-(q[1]-pan.q[1])/cam.z;draw();return}
   const w=wld(q);
-  if(!cur){const h=hit(w);if(h!=hov){hov=h;cv.style.cursor=h<0?'grab':'pointer';draw()}return}
+  if(!cur)return;
   cur.q=w;extend(w);draw();
 };
-cv.onpointerup=cv.onpointercancel=e=>{ptr.delete(e.pointerId);if(ptr.size<2)pv=null;pan=null;cur=null;cv.style.cursor='grab';draw();wake()};
-cv.onpointerleave=()=>{if(hov>=0&&!cur){hov=-1;draw()}};
-cv.addEventListener('wheel',e=>{e.preventDefault();zoomAt(pos(e),cam.z*Math.exp(-e.deltaY*.0015));draw()},{passive:false});
-$('zi').onclick=()=>{zoomAt([W/2,H/2],cam.z*1.3);draw()};$('zo').onclick=()=>{zoomAt([W/2,H/2],cam.z/1.3);draw()};$('ft').onclick=fit;
-$('un').onclick=undo;
-$('nw').onclick=()=>{if(over||ph!='play'){toLobby(1);return}if(!rzA){rzA=true;setTimeout(()=>{rzA=false;info()},3000);info();return}rzA=false;const i=seat>=0?seat:turn;send({t:'resign',i});resign(i)};
-$('n').onchange=$('tm').onchange=()=>{const v=parseFloat($('tm').value);$('tm').value=isFinite(v)&&v>0?Math.min(999,v):0;rdy=[false,false];send({t:'cfg',n:$('n').value,tm:$('tm').value});lobbyUI();info()};
-[0,1].forEach(i=>$('r'+i).onclick=()=>{if(ph=='lobby'){send({t:'rdy',i,v:!rdy[i]});setRdy(i,!rdy[i])}});
-$('mu').onclick=()=>{setMute(!mute);snd('ready')};
-addEventListener('resize',draw);
+cv.onpointerup=cv.onpointercancel=e=>{ptr.delete(e.pointerId);pan=null;cur=null;draw()};
 
-[0,1].forEach(i=>$('p'+i).oninput=e=>{names[i]=e.target.value.trim()||'Player '+(i+1);info();send({t:'name',i,v:names[i]})});
-
-// ---- Socket.io Logic ----
+// ---- Socket.io & Matchmaking ----
 let isSearching = false;
 function resetMatchBtn() {
   isSearching = false;
@@ -433,20 +329,33 @@ if (socket) {
 
   socket.on('waiting_for_match', () => { $('matchStatusMsg').textContent = '⏳ Đang chờ người chơi khác...'; });
 
-  socket.on('match_found', (data) => {
+  // SỰ KIỆN QUAN TRỌNG: Nhận dữ liệu trận đấu và tự động nhảy vào bàn cờ ngay
+  socket.on('match_start', (data) => {
     seat = data.role;
-    names[seat] = $('pNameInput').value || 'An Huy';
-    names[seat ^ 1] = data.opponent;
-    $('p' + seat).value = names[seat];
-    $('p' + (seat ^ 1)).value = names[seat ^ 1];
-    $('matchStatusMsg').textContent = `🎉 Đã tìm thấy đối thủ: ${data.opponent}`;
+    names[0] = data.p1Name;
+    names[1] = data.p2Name;
+    $('p0').value = names[0];
+    $('p1').value = names[1];
     
-    // Đặt sẵn trạng thái sẵn sàng cho 2 máy và kích hoạt ván đấu chuẩn
-    rdy = [true, true];
-    setPh('lobby');
-    if (seat === 0) {
-      send({ t: 'count' });
-      runCount();
+    spots = data.spots;
+    lines = data.lines;
+    turn = data.turn;
+    over = false;
+    go = true;
+    
+    setPh('play');
+    info();
+    draw();
+  });
+
+  socket.on('game_action', (data) => {
+    if (data.t === 'state') {
+      spots = data.spots;
+      lines = data.lines;
+      turn = data.turn;
+      over = data.over;
+      info();
+      draw();
     }
   });
 
@@ -458,143 +367,10 @@ if (socket) {
 
   socket.on('opponent_left', () => {
     alert('Đối thủ đã rời ván đấu!');
-    toLobby(1);
+    toLobby();
   });
 }
 
-const pack=()=>JSON.stringify({spots,lines,turn,over,tout,clk,lim,n:+$('n').value});
-const send=o=>{
-  if(dc&&dc.readyState=='open')dc.send(JSON.stringify(o));
-  if(socket&&seat>=0)socket.emit('game_action',o);
-};
-
-if(socket) {
-  socket.on('game_action', (m) => recv({ data: JSON.stringify(m) }));
-}
-
-const ns=t=>$('ns').textContent=t;
-const lock=()=>{$('un').disabled=seat>=0;lobbyUI()};
-const ice=()=>new Promise(r=>{if(pc2.iceGatheringState=='complete')return r();pc2.onicegatheringstatechange=()=>pc2.iceGatheringState=='complete'&&r();setTimeout(r,5000)});
-let stunOn=false;
-const b64u=b=>{let t='';new Uint8Array(b).forEach(c=>t+=String.fromCharCode(c));return btoa(t).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')};
-const unb64u=t=>{t=t.replace(/-/g,'+').replace(/_/g,'/');while(t.length%4)t+='=';return Uint8Array.from(atob(t),c=>c.charCodeAt(0))};
-const pipe=async(d,S)=>new Response(new Blob([d]).stream().pipeThrough(S)).arrayBuffer();
-const code=async()=>{const j=JSON.stringify({type:pc2.localDescription.type,sdp:pc2.localDescription.sdp,stun:stunOn?1:0});
-  if(window.CompressionStream){try{return 'S1.'+b64u(await pipe(j,new CompressionStream('deflate-raw')))}catch(e){}}return btoa(j)};
-const dec=async c=>c.startsWith('S1.')?JSON.parse(new TextDecoder().decode(await pipe(unb64u(c.slice(3)),new DecompressionStream('deflate-raw')))):JSON.parse(atob(c));
-const getCode=t=>{t=(t||'').trim();const m=t.match(/S1\.[\w-]+/)||t.match(/[A-Za-z0-9+\/=]{80,}/);return m?m[0]:t};
-const canLink=/^https?:$/.test(location.protocol);let shareMsg='';
-const copy=async(t,el)=>{try{await navigator.clipboard.writeText(t);return true}catch(e){try{(el||$('o')).select();return document.execCommand('copy')}catch(e2){return false}}};
-async function present(txt,msg,what){$('o').value=txt;$('sh').hidden=!navigator.share;shareMsg=what;const ok=await copy(txt);ns(msg+(ok?' It is already copied.':' Press Copy.'))}
-function mk(){
-  if(pc2){pc2.close();dc=null;seat=-1;lock()}
-  stunOn=$('stun').checked;pc2=new RTCPeerConnection({iceServers:stunOn?[{urls:'stun:stun.l.google.com:19302'}]:[]});
-  pc2.onconnectionstatechange=()=>{if(pc2.connectionState=='failed'&&seat<0)ns('Connection failed.');if(['failed','closed'].includes(pc2.connectionState))drop()};
-  $('o').value='';$('i').value='';$('go').disabled=false;
-}
-function wire(c){
-  dc=c;
-  c.onopen=()=>{closeRel();hideRoom();seat=me;lock();ns('Connected.');toLobby();$('net').open=false;send({t:'name',i:me,v:names[me]});if(me==0)send({t:'cfg',n:$('n').value,tm:$('tm').value})};
-  c.onmessage=recv;c.onclose=drop;
-}
-function drop(){if(seat<0)return;dc=null;seat=-1;rdy=[false,false];lock();ns('Disconnected.');if(ph=='count')toLobby();else info()}
-function recv(e){
-  try{
-    const m=JSON.parse(e.data);
-    if(m.t=='name'&&(m.i===0||m.i===1)){names[m.i]=String(m.v).slice(0,16);$('p'+m.i).value=names[m.i];info()}
-    else if(m.t=='rdy'&&(m.i===0||m.i===1)&&m.i!=seat)setRdy(m.i,!!m.v);
-    else if(m.t=='cfg'){$('n').value=m.n;$('tm').value=m.tm;rdy=[false,false];lobbyUI();info()}
-    else if(m.t=='count'){if(ph=='lobby')runCount()}
-    else if(m.t=='lobby')toLobby();
-    else if(m.t=='resign'&&(m.i===0||m.i===1))resign(m.i);
-    else if(m.t=='state'){
-      const o=JSON.parse(m.s),pd=spots.map(q=>q.d);({spots,lines,turn,over,tout,clk,lim}=o);$('n').value=o.n;$('tm').value=lim/60000;hist=[];cur=null;last=performance.now();
-      if(m.lot){clearTimeout(cdt);$('cd').hidden=true;rz=ended=warned=false;lsec=-1;cam={x:0,y:0,z:1};setPh('play');lottery(turn)}else{lt++;$('lot').hidden=true;go=true;if(spots.length>pd.length)satFx(pd,pc(turn^1))}
-      info();draw();wake();
-    }
-  }catch(err){}
-}
-
-$('rmk').onclick=async()=>{
-  closeRel();hideRoom();room='';mk();me=0;wire(pc2.createDataChannel('g'));$('go').textContent='Connect';ns('Preparing invite…');
-  await pc2.setLocalDescription(await pc2.createOffer());await ice();
-  const c=await code();
-  await present(canLink?location.href.split('#')[0]+'#join='+c:c,'Invite ready. Send it to your friend, then press Paste when they reply.','Join my Sprouts game:');
-  $('go').onclick=async()=>{const b=$('go');b.disabled=true;try{const o=await dec(getCode($('i').value));await pc2.setRemoteDescription({type:o.type,sdp:o.sdp});ns('Connecting…')}catch(err){b.disabled=false;ns('That reply did not work.')}};
-};
-function setupJoin(){
-  mk();me=1;pc2.ondatachannel=e=>wire(e.channel);$('go').textContent='Create reply';
-  $('go').onclick=async()=>{
-    const b=$('go');b.disabled=true;
-    try{
-      const o=await dec(getCode($('i').value));
-      if(o.stun&&!stunOn){const v=$('i').value;$('stun').checked=true;setupJoin();$('i').value=v;b.disabled=true}
-      await pc2.setRemoteDescription({type:o.type,sdp:o.sdp});
-      await pc2.setLocalDescription(await pc2.createAnswer());ns('Preparing reply…');await ice();
-      const rc=await code();
-      if(room){await relayPub('answer',rc);closeRel();ns('Found the host. Connecting…');watchConn()}
-      else await present(rc,'Reply ready. Send it back to the host; you connect when they paste it.','My Sprouts reply code:');
-    }catch(err){b.disabled=false;ns('That invite did not work.')}
-  };
-}
-$('join').onclick=()=>{closeRel();hideRoom();room='';setupJoin();ns('Press Paste to add the host\'s invite.')};
-let at;const auto=()=>{clearTimeout(at);at=setTimeout(()=>{
-  if(getCode($('i').value).length<60)return;
-  if(!pc2){const v=$('i').value;room='';setupJoin();$('i').value=v}
-  if(!$('go').disabled)$('go').click();
-},150)};
-$('i').addEventListener('input',auto);
-$('pa').onclick=async()=>{try{$('i').value=await navigator.clipboard.writeText();auto()}catch(e){ns('Your browser blocked clipboard access.')}};
-$('cp').onclick=async()=>{const ok=await copy($('o').value),b=$('cp');b.textContent=ok?'Copied ✓':'Select and copy';setTimeout(()=>b.textContent='Copy',1500)};
-$('sh').onclick=async()=>{const t=$('o').value;if(!t)return;try{await navigator.share(/^https?:/.test(t)?{title:'Sprouts',text:shareMsg,url:t}:{text:shareMsg+'\n'+t})}catch(e){}};
-
-const RELAY='https://ntfy.sh',ALPH='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-let room='',es=null,jt=0;
-const newRoom=()=>[...crypto.getRandomValues(new Uint8Array(6))].map(x=>ALPH[x%ALPH.length]).join('');
-const topic=()=>'sprouts-room-'+room;
-const closeRel=()=>{clearTimeout(jt);if(es){es.close();es=null}};
-const showRoom=()=>{$('rcode').value=room;$('rbox').hidden=false;$('rlnk').hidden=!canLink;$('rshr').hidden=!navigator.share};
-const hideRoom=()=>{$('rbox').hidden=true};
-const relayPub=async(k,c)=>{const r=await fetch(RELAY+'/'+topic(),{method:'POST',body:JSON.stringify({k,c})});if(!r.ok)throw new Error('relay')};
-function relaySub(h){
-  closeRel();let ok=false;const e=es=new EventSource(RELAY+'/'+topic()+'/sse?since=all');
-  e.onopen=()=>{ok=true};
-  e.onmessage=ev=>{try{const d=JSON.parse(ev.data);if(d.event==='message')h(JSON.parse(d.message))}catch(x){}};
-  e.onerror=()=>{if(!ok&&es===e){closeRel();ns('Could not reach the relay.')}};
-}
-const watchConn=()=>setTimeout(()=>{if(seat<0&&ph=='lobby')ns('Still not connected.')},20000);
-async function hostRoom(){
-  closeRel();mk();me=0;room=newRoom();const p=pc2;wire(p.createDataChannel('g'));$('go').textContent='Connect';
-  showRoom();ns('Creating room…');
-  await p.setLocalDescription(await p.createOffer());await ice();
-  if(p!==pc2)return;
-  const c=await code();let used=false;
-  relaySub(async m=>{
-    if(m.k!=='answer'||used||p!==pc2)return;used=true;
-    try{const o=await dec(m.c);await p.setRemoteDescription({type:o.type,sdp:o.sdp});closeRel();ns('Friend found. Connecting…');watchConn()}catch(e){used=false}
-  });
-  try{await relayPub('offer',c);ns('Room is open. Give your friend the code and wait here.')}
-  catch(e){closeRel();ns('Could not reach the relay.')}
-}
-function joinRoom(raw){
-  raw=String(raw||'');const m=raw.match(/room=([A-Za-z0-9]{6})/),c=(m?m[1]:raw).toUpperCase().replace(/[^A-Z0-9]/g,'');
-  if(c.length!==6){ns('Room codes have 6 characters.');return}
-  closeRel();hideRoom();setupJoin();room=c;let got=false;$('rin').value=c;
-  ns('Looking for room '+c+'…');
-  relaySub(m=>{if(m.k!=='offer'||got)return;got=true;clearTimeout(jt);$('i').value=m.c;$('go').click()});
-  jt=setTimeout(()=>{if(!got){closeRel();ns('No open room '+c+'.')}},8000);
-}
-$('rmk').onclick=hostRoom;$('rjn').onclick=()=>joinRoom($('rin').value);
-$('rin').onkeydown=e=>{if(e.key=='Enter')joinRoom($('rin').value)};
-$('rin').addEventListener('paste',e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(/room=[A-Za-z0-9]{6}/.test(t)){e.preventDefault();joinRoom(t)}});
-const roomLink=()=>location.href.split('#')[0]+'#room='+room;
-const flash=async(b,t,el)=>{const o=b.textContent,ok=await copy(t,el);b.textContent=ok?'Copied ✓':'Select and copy';setTimeout(()=>b.textContent=o,1500)};
-$('rcpy').onclick=()=>flash($('rcpy'),room,$('rcode'));
-$('rlnk').onclick=()=>flash($('rlnk'),roomLink());
-$('rshr').onclick=async()=>{try{await navigator.share(canLink?{title:'Sprouts',text:'Join my Sprouts game:',url:roomLink()}:{text:'Join my Sprouts game. Room code: '+room})}catch(e){}};
-$('th').onclick=()=>th(document.documentElement.dataset.theme=='dark'?'light':'dark');
-let t0;try{t0=localStorage.getItem('sp-theme')}catch(e){}
-th(t0||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'));
-setInterval(clockTick,200);
-spots=[];lines=[];hist=[];turn=0;over=false;setMute(mute);setPh('lobby');info();draw();
+$('nw').onclick = () => { toLobby(); };
+spots=[];lines=[];turn=0;over=false;setPh('lobby');info();draw();
 </script></body></html>
