@@ -15,6 +15,17 @@ let waitingPlayer = null;
 let rooms = {};
 let users = {}; // { socketId: { name, elo } }
 
+// Hàm sinh tọa độ các chấm ngẫu nhiên chuẩn từ Server
+function generateSpots(n = 3) {
+  const spots = [];
+  const W = 900, H = 600;
+  for (let t = 0; spots.length < n && t < 2000; t++) {
+    const p = { x: (Math.random() - .5) * (W - 140), y: (Math.random() - .5) * (H - 140), d: 0 };
+    if (spots.every(s => Math.hypot(s.x - p.x, s.y - p.y) > 100)) spots.push(p);
+  }
+  return spots;
+}
+
 io.on('connection', (socket) => {
   console.log('Player connected:', socket.id);
 
@@ -50,9 +61,22 @@ io.on('connection', (socket) => {
       rooms[p1.id] = { id: roomId, p1: p1.id, p2: p2.id };
       rooms[p2.id] = { id: roomId, p1: p1.id, p2: p2.id };
 
-      // Phát tín hiệu ghép trận kèm tên và vai trò (Host = 0, Joiner = 1)
-      p1.emit('match_found', { role: 0, roomId, opponent: users[p2.id].name });
-      p2.emit('match_found', { role: 1, roomId, opponent: users[p1.id].name });
+      // Tạo sẵn bàn cờ và lượt đi ngẫu nhiên ngay khi vừa ghép đôi thành công
+      const initialSpots = generateSpots(3);
+      const initialTurn = Math.random() < 0.5 ? 0 : 1;
+
+      const matchData = {
+        roomId,
+        spots: initialSpots,
+        lines: [],
+        turn: initialTurn,
+        p1Name: users[p1.id].name,
+        p2Name: users[p2.id].name
+      };
+
+      // Gửi thẳng gói tin bắt đầu trận kèm bàn cờ về cho cả 2 máy
+      p1.emit('match_start', { ...matchData, role: 0, opponent: users[p2.id].name });
+      p2.emit('match_start', { ...matchData, role: 1, opponent: users[p1.id].name });
     } else {
       waitingPlayer = socket;
       socket.emit('waiting_for_match');
@@ -65,7 +89,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Chuyển tiếp các gói tin trạng thái ván đấu (nước đi, cấu hình, đếm ngược)
   socket.on('game_action', (data) => {
     const room = rooms[socket.id];
     if (room) {
@@ -73,7 +96,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Xử lý cộng / trừ điểm Elo khi game thúc
   socket.on('game_over', (data) => {
     const room = rooms[socket.id];
     if (room && data && data.winner !== undefined) {
