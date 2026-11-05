@@ -5,100 +5,113 @@ const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
 
 app.use(express.static(path.join(__dirname)));
 
 let waitingPlayer = null;
 let rooms = {};
-// Bảng xếp hạng Elo lưu trữ theo tên người chơi (mặc định 1200 Elo)
-let leaderboard = {};
-
-function calculateElo(ratingA, ratingB, actualScoreA, K = 32) {
-  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-  return Math.round(ratingA + K * (actualScoreA - expectedA));
-}
+// Cấu trúc users: { socketId: { name, elo } }
+let users = {};
 
 io.on('connection', (socket) => {
-  // Gửi Bảng xếp hạng ngay khi có kết nối
-  socket.emit('leaderboard_data', getSortedLeaderboard());
+  console.log('Player connected:', socket.id);
 
+  // Đăng ký tên và khởi tạo Elo
+  socket.on('set_name', (data) => {
+    const name = data && data.name ? String(data.name).trim().slice(0, 16) : 'Player';
+    if (!users[socket.id]) {
+      users[socket.id] = { name, elo: 1000 };
+    } else {
+      users[socket.id].name = name;
+    }
+    io.emit('leaderboard_update', getLeaderboard());
+  });
+
+  // Xử lý Tìm trận
   socket.on('find_match', (data) => {
-    const pName = (data && data.name) ? data.name.trim() : 'Player';
-    socket.playerName = pName;
-    if (!leaderboard[pName]) leaderboard[pName] = 1200; // Khởi tạo 1200 điểm nếu mới
+    const playerName = data && data.name ? String(data.name).trim().slice(0, 16) : 'Player';
+    if (!users[socket.id]) {
+      users[socket.id] = { name: playerName, elo: 1000 };
+    } else {
+      users[socket.id].name = playerName;
+    }
 
-    if (waitingPlayer && waitingPlayer.id !== socket.id) {
-      const roomId = 'room_' + waitingPlayer.id + '_' + socket.id;
+    // Nếu người chơi bấm lại khi đang chờ thì không xử lý trùng
+    if (waitingPlayer && waitingPlayer.id === socket.id) return;
+
+    if (waitingPlayer && waitingPlayer.connected) {
       const p1 = waitingPlayer;
       const p2 = socket;
-
       waitingPlayer = null;
 
+      const roomId = 'room_' + p1.id + '_' + p2.id;
       p1.join(roomId);
       p2.join(roomId);
 
-      rooms[p1.id] = { roomId, opponent: p2, role: 0 };
-      rooms[p2.id] = { roomId, opponent: p1, role: 1 };
+      rooms[p1.id] = { id: roomId, p1: p1.id, p2: p2.id };
+      rooms[p2.id] = { id: roomId, p1: p1.id, p2: p2.id };
 
-      p1.emit('match_found', { role: 0, roomId, opponentName: p2.playerName, opponentElo: leaderboard[p2.playerName] });
-      p2.emit('match_found', { role: 1, roomId, opponentName: p1.playerName, opponentElo: leaderboard[p1.playerName] });
+      p1.emit('match_found', { role: 0, roomId, opponent: users[p2.id].name, opponentElo: users[p2.id].elo });
+      p2.emit('match_found', { role: 1, roomId, opponent: users[p1.id].name, opponentElo: users[p1.id].elo });
     } else {
       waitingPlayer = socket;
       socket.emit('waiting_for_match');
     }
   });
 
-  socket.on('game_action', (data) => {
-    const rInfo = rooms[socket.id];
-    if (rInfo) {
-      socket.to(rInfo.roomId).emit('game_action', data);
+  // Hủy tìm trận
+  socket.on('cancel_match', () => {
+    if (waitingPlayer && waitingPlayer.id === socket.id) {
+      waitingPlayer = null;
     }
   });
 
-  // Xử lý cập nhật Elo khi trận đấu kết thúc
+  // Truyền nước đi
+  socket.on('game_action', (data) => {
+    const room = rooms[socket.id];
+    if (room) {
+      socket.to(room.id).emit('game_action', data);
+    }
+  });
+
+  // Tính toán Elo khi ván đấu kết thúc
   socket.on('game_over', (data) => {
-    const rInfo = rooms[socket.id];
-    if (rInfo && rInfo.opponent) {
-      const p1Name = socket.playerName;
-      const p2Name = rInfo.opponent.playerName;
+    const room = rooms[socket.id];
+    if (room && data && data.winner !== undefined) {
+      const winnerId = data.winner === 0 ? room.p1 : room.p2;
+      const loserId = data.winner === 0 ? room.p2 : room.p1;
 
-      if (p1Name && p2Name) {
-        const elo1 = leaderboard[p1Name] || 1200;
-        const elo2 = leaderboard[p2Name] || 1200;
-
-        // winnerRole === socket's role ? 1 : 0
-        const score1 = data.winnerRole === rInfo.role ? 1 : 0;
-        const score2 = 1 - score1;
-
-        const newElo1 = calculateElo(elo1, elo2, score1);
-        const newElo2 = calculateElo(elo2, elo1, score2);
-
-        leaderboard[p1Name] = newElo1;
-        leaderboard[p2Name] = newElo2;
-
-        io.emit('leaderboard_data', getSortedLeaderboard());
+      if (users[winnerId] && users[loserId]) {
+        users[winnerId].elo += 16;
+        users[loserId].elo = Math.max(0, users[loserId].elo - 16);
+        io.emit('leaderboard_update', getLeaderboard());
       }
     }
   });
 
+  // Xử lý ngắt kết nối
   socket.on('disconnect', () => {
     if (waitingPlayer && waitingPlayer.id === socket.id) {
       waitingPlayer = null;
     }
-    const rInfo = rooms[socket.id];
-    if (rInfo) {
-      socket.to(rInfo.roomId).emit('opponent_left');
-      delete rooms[socket.id];
+    const room = rooms[socket.id];
+    if (room) {
+      socket.to(room.id).emit('opponent_left');
+      delete rooms[room.p1];
+      delete rooms[room.p2];
     }
+    delete users[socket.id];
+    io.emit('leaderboard_update', getLeaderboard());
   });
 });
 
-function getSortedLeaderboard() {
-  return Object.keys(leaderboard)
-    .map(name => ({ name, elo: leaderboard[name] }))
+function getLeaderboard() {
+  return Object.values(users)
     .sort((a, b) => b.elo - a.elo)
-    .slice(0, 10); // Top 10
+    .slice(0, 10);
 }
 
 const PORT = process.env.PORT || 3000;
