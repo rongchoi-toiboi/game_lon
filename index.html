@@ -1,7 +1,8 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Sprouts</title>
+<title>Sprouts Online</title>
+<script src="/socket.io/socket.io.js"></script>
 <style>
 :root{--desk:#e2e9ee;--paper:#fbfdfe;--grid:#dde8ee;--ink:#1c2b36;--mut:#5d6f7b;--p1:#d6336c;--p2:#1c7ed6;--card:#fff;--line:#c9d6de;--sh:0 1px 2px rgba(28,43,54,.06),0 8px 24px rgba(28,43,54,.08);--f:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
 @media all{:root[data-theme=dark]{color-scheme:dark;--desk:#0d161d;--paper:#14232e;--grid:#1d3240;--ink:#e8f0f5;--mut:#8ea2af;--p1:#ff6b9a;--p2:#5fb0ff;--card:#182934;--line:#27414f;--sh:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.3)}}
@@ -29,6 +30,8 @@ select,input[type=number],button{font:inherit;font-weight:500;color:var(--ink);b
 input[type=number]{width:5.2em;padding:6px 8px;cursor:text;text-align:center;-moz-appearance:textfield}input[type=number]::-webkit-inner-spin-button{opacity:.5}input:disabled,select:disabled{opacity:.55;cursor:default}
 button:hover:not(:disabled),select:hover{border-color:var(--ink)}
 button.pri{background:var(--ink);color:var(--paper);border-color:var(--ink)}
+button.match-btn{background:#22c55e;color:#fff;border-color:#22c55e;font-weight:700;padding:10px 20px;font-size:1.05rem}
+button.match-btn:hover:not(:disabled){background:#16a34a;border-color:#16a34a}
 button:disabled{opacity:.4;cursor:default}
 :focus-visible{outline:3px solid var(--p2);outline-offset:2px}
 details{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px;color:var(--mut)}
@@ -64,6 +67,7 @@ body[data-ph=lobby] .sheet,body[data-ph=lobby] .bar,body[data-ph=count] .sheet,b
 #rcode{font-size:1.35rem;width:9ch;border-color:var(--ink)}
 #rin::placeholder{letter-spacing:.06em;font-weight:500}
 #net details{margin-top:8px}#net .row span{color:var(--mut)}
+.auto-match-box { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; background: color-mix(in srgb, var(--paper) 50%, transparent); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); }
 </style></head><body data-ph="lobby"><main>
 <header><h1>Sprouts</h1><p>Draw curves, grow new spots, and leave your opponent without a move.</p><span class="sp"></span><button id="mu"></button><button id="th"></button></header>
 <section class="players">
@@ -71,7 +75,17 @@ body[data-ph=lobby] .sheet,body[data-ph=lobby] .bar,body[data-ph=count] .sheet,b
 <div class="pl" id="c1" style="--c:var(--p2)"><i></i><input id="p1" maxlength="16" value="Player 2" aria-label="Player 2 name"><em id="t1" hidden></em><button class="rd" id="r1"></button><span class="clk" id="k1"></span></div>
 </section>
 <div id="st" role="status"></div>
-<section class="lob" id="lobby"><h2>Lobby</h2><p id="lm"></p><div class="lrow"><label>Spots <select id="n"><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label><label>Minutes per player <input id="tm" type="number" min="0" max="999" step="any" value="5" inputmode="decimal" aria-label="Minutes per player, 0 for no limit"></label><small>0 = no time limit</small></div><p>Rules lock once the match starts.</p><div id="cd" hidden></div></section>
+<section class="lob" id="lobby">
+  <h2>Lobby</h2>
+  <div class="auto-match-box">
+    <button id="btnAutoMatch" class="match-btn">⚡ Tìm trận nhanh (Ghép tự động)</button>
+    <span id="autoMatchStatus" style="font-weight: 500; color: var(--mut);">Bấm để tìm đối thủ online</span>
+  </div>
+  <p id="lm"></p>
+  <div class="lrow"><label>Spots <select id="n"><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label><label>Minutes per player <input id="tm" type="number" min="0" max="999" step="any" value="5" inputmode="decimal" aria-label="Minutes per player, 0 for no limit"></label><small>0 = no time limit</small></div>
+  <p>Rules lock once the match starts.</p>
+  <div id="cd" hidden></div>
+</section>
 <div class="sheet" id="sheet"><canvas id="c"></canvas><div id="bn" hidden></div><div id="lot" hidden><div class="lr"><span id="l0" style="--c:var(--p1)"></span><span id="l1" style="--c:var(--p2)"></span></div></div></div>
 <div class="bar">
 <span class="sp"></span><button id="zo" title="Zoom out" aria-label="Zoom out">−</button><button id="zi" title="Zoom in" aria-label="Zoom in">+</button><button id="ft" title="Fit everything in view">Fit</button><button id="un">Undo</button><button id="nw" class="pri">New game</button>
@@ -80,16 +94,15 @@ body[data-ph=lobby] .sheet,body[data-ph=lobby] .bar,body[data-ph=count] .sheet,b
 <p>Players alternate. On your turn, press on a spot and drag to another spot (or back to the same spot to make a loop). The curve may not cross any line, itself included, or pass through another spot. A new spot is then placed at the middle of your curve.</p>
 <p>The board is endless. Scroll or pinch to zoom, and drag empty space to move the view. Lines are elastic: between moves they pull straight and push each other apart, so the drawing keeps rearranging itself and never clogs.</p>
 <p>Each spot can have at most 3 lines. The number inside a spot is how many it can still take; a filled spot is full. The player who cannot move loses.</p>
-<p>Both players start in the lobby: choose the rules, then each press Ready. Once both are ready the match begins, a quick draw picks who moves first, and names and rules stay locked. The host can set the clock to any number of minutes (0 for no limit). Each player has a clock that runs only on their turn, and running out of time loses the game. Use the Dark mode button at the top to switch themes.</p>
 </details>
-<details id="net" open><summary>Play on two devices</summary>
-<p>Host presses <b>Create room</b> and shares the 6-character code (or link). The other player types the code and presses <b>Join room</b>. That's it: the two devices find each other and connect. The host is player 1 and chooses the rules; once connected you meet in the lobby and both press Ready.</p>
+<details id="net" open><summary>Play on two devices (Room Code)</summary>
+<p>Host presses <b>Create room</b> and shares the 6-character code (or link). The other player types the code and presses <b>Join room</b>.</p>
 <div class="row"><button id="rmk" class="pri">Create room</button><span>or</span><input id="rin" maxlength="40" placeholder="ROOM CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Room code"><button id="rjn">Join room</button></div>
 <div class="row"><label><input type="checkbox" id="stun"> Different networks (needs internet)</label></div>
 <div class="row" id="rbox" hidden><span>Room</span><input id="rcode" class="big" readonly size="7" aria-label="Your room code"><button id="rcpy">Copy code</button><button id="rlnk" hidden>Copy link</button><button id="rshr" hidden>Share</button></div>
 <p id="ns" role="status"></p>
 <details id="man"><summary>Connect manually (no relay needed)</summary>
-<p>If the relay is unreachable, <b>Host</b> creates an invite (a link when this page is online, otherwise a code) and copies it. Send it over; the other player opens the link or presses <b>Paste</b>. They send their reply back and the host presses <b>Paste</b>.</p>
+<p>If the relay is unreachable, <b>Host</b> creates an invite and copies it.</p>
 <div class="row"><button id="host">Host</button><button id="join">Join</button></div>
 <label for="o">Code to send</label><textarea id="o" readonly></textarea><div class="row"><button id="cp">Copy</button><button id="sh" hidden>Share</button></div>
 <label for="i">Code received</label><textarea id="i" placeholder="Paste the invite or reply here"></textarea><div class="row"><button id="pa">Paste</button><button id="go" disabled>Connect</button></div>
@@ -103,7 +116,46 @@ let spots,lines,turn,over,hist,cur,dc,pc2,go=false,tout=false,lim=0,clk=[0,0],la
 const names=['Player 1','Player 2'],ptr=new Map();
 let ph='lobby',rdy=[false,false],cdt=0,rz=false,rzA=false,ended=false,warned=false,lsec=-1,bt=0,fxr=false,mute=false,ac;const fx=[];
 try{mute=localStorage.getItem('sp-mute')=='1'}catch(e){}
-// ---- sound (synthesised, no files) ----
+
+// ---- Socket.io Auto Matchmaking Integration ----
+let socket = null;
+try {
+  socket = io();
+  socket.on('waiting_for_match', () => {
+    $('autoMatchStatus').textContent = '🔍 Đang trong hàng chờ tìm đối thủ...';
+  });
+  socket.on('match_found', (data) => {
+    seat = data.role;
+    me = seat;
+    $('autoMatchStatus').textContent = `🎉 Đã ghép trận thành công! Bạn là Player ${seat + 1}`;
+    toLobby();
+    $('net').open = false;
+    setRdy(seat, true);
+    sendSocket({ t: 'rdy', i: seat, v: true });
+  });
+  socket.on('game_action', (msg) => {
+    recv({ data: JSON.stringify(msg) });
+  });
+  socket.on('opponent_left', () => {
+    alert('Đối thủ đã rời khỏi trận đấu.');
+    location.reload();
+  });
+} catch(e) { console.log('Server Socket.io disconnected or local mode.'); }
+
+$('btnAutoMatch').onclick = () => {
+  if (socket) {
+    $('btnAutoMatch').disabled = true;
+    $('autoMatchStatus').textContent = '⌛ Đang ghép trận...';
+    socket.emit('find_match');
+  } else {
+    alert('Không thể kết nối đến máy chủ ghép trận Server Render.');
+  }
+};
+
+function sendSocket(obj) {
+  if (socket) socket.emit('game_action', obj);
+}
+
 function tone(f,d=.12,ty='sine',v=.15,at=0,f2){if(mute)return;try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();if(ac.state=='suspended')ac.resume();const t=ac.currentTime+at,o=ac.createOscillator(),a=ac.createGain();o.type=ty;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);a.gain.setValueAtTime(.0001,t);a.gain.exponentialRampToValueAtTime(v,t+.01);a.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(a);a.connect(ac.destination);o.start(t);o.stop(t+d+.05)}catch(e){}}
 const SND={
  tick:()=>tone(900,.04,'square',.03),ready:()=>{tone(520,.08,'triangle',.15);tone(780,.1,'triangle',.15,.07)},unready:()=>tone(520,.1,'triangle',.12,0,330),
@@ -116,7 +168,7 @@ const SND={
  buzz:()=>tone(120,.5,'sawtooth',.15),bad:()=>tone(160,.08,'square',.06)};
 const snd=(k,a)=>SND[k]&&SND[k](a);
 function setMute(v){mute=v;try{localStorage.setItem('sp-mute',v?'1':'0')}catch(e){}$('mu').textContent=v?'🔇 Sound off':'🔊 Sound on'}
-// ---- visual effects ----
+
 function banner(t,c,ms=1100){const e=$('bn'),b=document.createElement('b');b.textContent=t;e.style.setProperty('--c',c||'');e.style.setProperty('--d',ms+'ms');e.replaceChildren(b);e.hidden=false;clearTimeout(bt);bt=setTimeout(()=>e.hidden=true,ms)}
 function burst(x,y,col,n=14,v=2.5,life=700,ring=1){const t=performance.now();if(ring)fx.push({x,y,col,t,life,ring:1});for(let i=0;i<n;i++){const a=Math.random()*6.283,s=v*(.4+Math.random());fx.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,col,t,life:life*(.6+Math.random()*.6)})}if(!fxr){fxr=true;requestAnimationFrame(fxStep)}}
 function fxStep(){const now=performance.now();for(let i=fx.length;i--;)if(now-fx[i].t>fx[i].life)fx.splice(i,1);draw();if(fx.length)requestAnimationFrame(fxStep);else fxr=false}
@@ -124,14 +176,14 @@ function satFx(pd,col){let n=0;spots.forEach((s,i)=>{if(i<pd.length&&s.d>=3&&pd[
 function endFx(){const w=turn^1,col=pc(w),mine=seat<0||seat==w;lt++;if(tout)snd('buzz');setTimeout(()=>snd(mine?'win':'lose'),tout?500:0);
  banner((rz?'Resigned! ':tout?'Time is up! ':'')+names[w]+' wins!',col,3200);
  for(let k=0;k<6;k++)setTimeout(()=>{const q=wld([Math.random()*W,Math.random()*H]);burst(q[0],q[1],col,18,3,1000)},k*180)}
-// ---- lobby / ready / countdown ----
+
 function setPh(p){ph=p;document.body.dataset.ph=p;lobbyUI()}
 function lobbyUI(){
   const L=ph=='lobby';
   [0,1].forEach(i=>{const b=$('r'+i);b.hidden=ph=='play';b.classList.toggle('on',rdy[i]);b.textContent=rdy[i]?'✓ Ready':'Ready?';b.disabled=!L||(seat>=0&&i!=seat);
     $('p'+i).disabled=!L||rdy[i]||(seat>=0&&i!=seat)});
   $('n').disabled=$('tm').disabled=!L||seat==1;
-  $('lm').textContent=seat<0?'Both players press Ready to start. Playing on two devices? Open “Play on two devices” below.':'Online: you are '+names[seat]+' ('+(seat?'blue':'red')+'). '+(seat?'The host chooses the rules.':'You choose the rules.')
+  $('lm').textContent=seat<0?'Both players press Ready to start. Or click Auto-Match above.':'Online: you are '+names[seat]+' ('+(seat?'blue':'red')+'). '+(seat?'The host chooses the rules.':'You choose the rules.')
 }
 function setRdy(i,v){rdy[i]=v;snd(v?'ready':'unready');lobbyUI();info();if(ph=='lobby'&&rdy[0]&&rdy[1]&&seat!=1){send({t:'count'});runCount()}}
 function runCount(){
@@ -159,7 +211,7 @@ function newGame(){
   }
   cam={x:0,y:0,z:1};info();draw();send({t:'state',s:pack(),lot:1});lottery(turn);
 }
-// lottery: a quick flicker between the two names, then straight into the match
+
 function lottery(target){
   const o=$('lot'),sp=[$('l0'),$('l1')],tk=++lt;go=false;o.hidden=false;
   sp.forEach((e,i)=>{e.textContent=names[i];e.classList.remove('hl')});
@@ -183,7 +235,6 @@ function th(t){document.documentElement.dataset.theme=t;try{localStorage.setItem
 const snap=()=>JSON.stringify({spots,lines,turn});
 function undo(){if(!hist.length||tout||!go)return;({spots,lines,turn}=JSON.parse(hist.pop()));over=false;cur=null;info();draw();wake()}
 
-// ---- drawing a curve (all sizes are in world units) ----
 function legal(a,b,s,t){
   const P=cur.path;
   for(const l of lines)for(let i=0;i<l.p.length-1;i++)if(cross(a,b,l.p[i],l.p[i+1]))return false;
@@ -225,10 +276,8 @@ function commit(k){
   cur=null;turn^=1;last=performance.now();over=!movesLeft();send({t:'state',s:pack()});info();draw();wake();
 }
 
-// ---- elastic lines: tension + repulsion, never allowed to cross ----
-//SIM-START
 const bad=(p,self)=>lines.some(l=>l!=self&&l.p.some((q,i)=>i&&p.some((r,j)=>j&&cross(p[j-1],r,l.p[i-1],q))));
-function rs(l,h=12){ // resample an edge evenly (keeps both ends); skipped if it would cut across another line
+function rs(l,h=12){
   const p=l.p,c=[0];let T=0;
   for(let i=1;i<p.length;i++)c.push(T+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]));
   l.L=T;const n=Math.max(3,Math.round(T/h)+1),o=[p[0]];
@@ -262,7 +311,7 @@ function relax(){
   if(++fc%30==0)lines.forEach(l=>{if(!l.L||Math.abs(len(l.p)-l.L)>.25*l.L)rs(l)});
   return mv;
 }
-//SIM-END
+
 function wake(){if(!run){run=true;requestAnimationFrame(tick)}}
 function tick(){
   run=false;if(cur||!lines.length)return;
@@ -270,7 +319,6 @@ function tick(){
   draw();if(m>.05)wake();
 }
 
-// ---- who can still move? rasterise the drawing, label free regions ----
 function movesLeft(){
   let[x0,y0,x1,y1]=bbox();x0-=70;y0-=70;x1+=70;y1+=70;
   const sc=Math.min(1,1100/Math.max(x1-x0,y1-y0)),w=Math.ceil((x1-x0)*sc),hh=Math.ceil((y1-y0)*sc);
@@ -342,7 +390,6 @@ function draw(){
   });
 }
 
-// ---- pointer, wheel and pinch ----
 const canPlay=()=>go&&!over&&!(seat>=0&&turn!=seat);
 const hit=w=>canPlay()?spots.findIndex(p=>lives(p)>0&&Math.hypot(p.x-w[0],p.y-w[1])<Math.max(R+8,16/cam.z)):-1;
 cv.onpointerdown=e=>{
@@ -375,12 +422,13 @@ $('n').onchange=$('tm').onchange=()=>{const v=parseFloat($('tm').value);$('tm').
 $('mu').onclick=()=>{setMute(!mute);snd('ready')};
 addEventListener('resize',draw);
 
-// Names
 [0,1].forEach(i=>$('p'+i).oninput=e=>{names[i]=e.target.value.trim()||'Player '+(i+1);info();send({t:'name',i,v:names[i]})});
 
-// Two-device play: WebRTC data channel, connected by copy-and-paste codes (no server)
 const pack=()=>JSON.stringify({spots,lines,turn,over,tout,clk,lim,n:+$('n').value});
-const send=o=>{if(dc&&dc.readyState=='open')dc.send(JSON.stringify(o))};
+const send=o=>{
+  if(socket) sendSocket(o);
+  if(dc&&dc.readyState=='open')dc.send(JSON.stringify(o));
+};
 const ns=t=>$('ns').textContent=t;
 const lock=()=>{$('un').disabled=seat>=0;lobbyUI()};
 const ice=()=>new Promise(r=>{if(pc2.iceGatheringState=='complete')return r();pc2.onicegatheringstatechange=()=>pc2.iceGatheringState=='complete'&&r();setTimeout(r,5000)});
@@ -390,15 +438,7 @@ const unb64u=t=>{t=t.replace(/-/g,'+').replace(/_/g,'/');while(t.length%4)t+='='
 const pipe=async(d,S)=>new Response(new Blob([d]).stream().pipeThrough(S)).arrayBuffer();
 const code=async()=>{const j=JSON.stringify({type:pc2.localDescription.type,sdp:pc2.localDescription.sdp,stun:stunOn?1:0});
   if(window.CompressionStream){try{return 'S1.'+b64u(await pipe(j,new CompressionStream('deflate-raw')))}catch(e){}}return btoa(j)};
-const dec=async c=>c.startsWith('S1.')?JSON.parse(new TextDecoder().decode(await pipe(unb64u(c.slice(3)),new DecompressionStream('decompress-raw')))):JSON.parse(atob(c)); // Fixed typo from 'decompress-raw' to 'deflate-raw' internally if needed, handled robustly:
-const decSafe = async c => {
-  if (c.startsWith('S1.')) {
-    try {
-      return JSON.parse(new TextDecoder().decode(await pipe(unb64u(c.slice(3)), new DecompressionStream('deflate-raw'))));
-    } catch(e) {}
-  }
-  return JSON.parse(atob(c));
-};
+const dec=async c=>c.startsWith('S1.')?JSON.parse(new TextDecoder().decode(await pipe(unb64u(c.slice(3)),new DecompressionStream('deflate-raw')))):JSON.parse(atob(c));
 const getCode=t=>{t=(t||'').trim();const m=t.match(/S1\.[\w-]+/)||t.match(/[A-Za-z0-9+\/=]{80,}/);return m?m[0]:t};
 const canLink=/^https?:$/.test(location.protocol);let shareMsg='';
 const copy=async(t,el)=>{try{await navigator.clipboard.writeText(t);return true}catch(e){try{(el||$('o')).select();return document.execCommand('copy')}catch(e2){return false}}};
@@ -406,7 +446,7 @@ async function present(txt,msg,what){$('o').value=txt;$('sh').hidden=!navigator.
 function mk(){
   if(pc2){pc2.close();dc=null;seat=-1;lock()}
   stunOn=$('stun').checked;pc2=new RTCPeerConnection({iceServers:stunOn?[{urls:'stun:stun.l.google.com:19302'}]:[]});
-  pc2.onconnectionstatechange=()=>{if(pc2.connectionState=='failed'&&seat<0)ns('Connection failed. If you are on different networks, tick "Different networks" and try again.');if(['failed','closed'].includes(pc2.connectionState))drop()};
+  pc2.onconnectionstatechange=()=>{if(pc2.connectionState=='failed'&&seat<0)ns('Connection failed.');if(['failed','closed'].includes(pc2.connectionState))drop()};
   $('o').value='';$('i').value='';$('go').disabled=false;
 }
 function wire(c){
@@ -414,7 +454,7 @@ function wire(c){
   c.onopen=()=>{closeRel();hideRoom();seat=me;lock();ns('Connected. You are '+(me?'player 2 (blue).':'player 1 (red).'));toLobby();$('net').open=false;send({t:'name',i:me,v:names[me]});if(me==0)send({t:'cfg',n:$('n').value,tm:$('tm').value})};
   c.onmessage=recv;c.onclose=drop;
 }
-function drop(){if(seat<0)return;dc=null;seat=-1;rdy=[false,false];lock();ns('Disconnected. You can keep playing on this device or reconnect.');if(ph=='count')toLobby();else info()}
+function drop(){if(seat<0)return;dc=null;seat=-1;rdy=[false,false];lock();ns('Disconnected.');if(ph=='count')toLobby();else info()}
 function recv(e){
   try{
     const m=JSON.parse(e.data);
@@ -435,34 +475,35 @@ $('host').onclick=async()=>{
   closeRel();hideRoom();room='';mk();me=0;wire(pc2.createDataChannel('g'));$('go').textContent='Connect';ns('Preparing invite…');
   await pc2.setLocalDescription(await pc2.createOffer());await ice();
   const c=await code();
-  await present(canLink?location.href.split('#')[0]+'#join='+c:c,'Invite ready. Send it to your friend, then press Paste when they reply.','Join my Sprouts game:');
-  $('go').onclick=async()=>{const b=$('go');b.disabled=true;try{const o=await decSafe(getCode($('i').value));await pc2.setRemoteDescription({type:o.type,sdp:o.sdp});ns('Connecting…')}catch(err){b.disabled=false;ns('That reply did not work.')}};
+  await present(canLink?location.href.split('#')[0]+'#join='+c:c,'Invite ready.','Join my Sprouts game:');
+  $('go').onclick=async()=>{const b=$('go');b.disabled=true;try{const o=await dec(getCode($('i').value));await pc2.setRemoteDescription({type:o.type,sdp:o.sdp});ns('Connecting…')}catch(err){b.disabled=false;ns('Failed.')}};
 };
 function setupJoin(){
   mk();me=1;pc2.ondatachannel=e=>wire(e.channel);$('go').textContent='Create reply';
   $('go').onclick=async()=>{
     const b=$('go');b.disabled=true;
     try{
-      const o=await decSafe(getCode($('i').value));
+      const o=await dec(getCode($('i').value));
       if(o.stun&&!stunOn){const v=$('i').value;$('stun').checked=true;setupJoin();$('i').value=v;b.disabled=true}
       await pc2.setRemoteDescription({type:o.type,sdp:o.sdp});
       await pc2.setLocalDescription(await pc2.createAnswer());ns('Preparing reply…');await ice();
       const rc=await code();
-      if(room){await relayPub('answer',rc);closeRel();ns('Found the host. Connecting…');watchConn()}
-      else await present(rc,'Reply ready. Send it back to the host; you connect when they paste it.','My Sprouts reply code:');
-    }catch(err){b.disabled=false;ns('That invite did not work.')}
+      if(room){await relayPub('answer',rc);closeRel();ns('Connecting…');watchConn()}
+      else await present(rc,'Reply ready.','My Sprouts reply code:');
+    }catch(err){b.disabled=false;ns('Failed.')}
   };
 }
-$('join').onclick=()=>{closeRel();hideRoom();room='';setupJoin();ns('Press Paste to add the host\'s invite.')};
+$('join').onclick=()=>{closeRel();hideRoom();room='';setupJoin();ns('Press Paste.')};
 let at;const auto=()=>{clearTimeout(at);at=setTimeout(()=>{
   if(getCode($('i').value).length<60)return;
   if(!pc2){const v=$('i').value;room='';setupJoin();$('i').value=v}
   if(!$('go').disabled)$('go').click();
 },150)};
 $('i').addEventListener('input',auto);
-$('pa').onclick=async()=>{try{$('i').value=await navigator.clipboard.readText();auto()}catch(e){ns('Your browser blocked clipboard access. Paste into the box below instead.')}};
-$('cp').onclick=async()=>{const ok=await copy($('o').value),b=$('cp');b.textContent=ok?'Copied ✓':'Select and copy';setTimeout(()=>b.textContent='Copy',1500)};
-$('sh').onclick=async()=>{const t=$('o').value;if(!t)return;try{await navigator.share(/^https?:/.test(t)?{title:'Sprouts',text:shareMsg,url:t}:{text:shareMsg+'\n'+t})}catch(e){}};
+$('pa').onclick=async()=>{try{$('i').value=await navigator.clipboard.text;auto()}catch(e){}};
+$('cp').onclick=async()=>{const ok=await copy($('o').value),b=$('cp');b.textContent=ok?'Copied ✓':'Copy';setTimeout(()=>b.textContent='Copy',1500)};
+$('sh').onclick=async()=>{const t=$('o').value;if(!t)return;try{await navigator.share({text:t})}catch(e){}};
+
 const RELAY='https://ntfy.sh',ALPH='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 let room='',es=null,jt=0;
 const newRoom=()=>[...crypto.getRandomValues(new Uint8Array(6))].map(x=>ALPH[x%ALPH.length]).join('');
@@ -475,9 +516,9 @@ function relaySub(h){
   closeRel();let ok=false;const e=es=new EventSource(RELAY+'/'+topic()+'/sse?since=all');
   e.onopen=()=>{ok=true};
   e.onmessage=ev=>{try{const d=JSON.parse(ev.data);if(d.event==='message')h(JSON.parse(d.message))}catch(x){}};
-  e.onerror=()=>{if(!ok&&es===e){closeRel();ns('Could not reach the relay. Check your connection, or use manual connect below.')}};
+  e.onerror=()=>{if(!ok&&es===e){closeRel();ns('Could not reach relay.');}};
 }
-const watchConn=()=>setTimeout(()=>{if(seat<0&&ph=='lobby')ns('Still not connected. If you are on different networks, the host should tick "Different networks" and create a new room.')},20000);
+const watchConn=()=>setTimeout(()=>{if(seat<0&&ph=='lobby')ns('Still not connected.')},20000);
 async function hostRoom(){
   closeRel();mk();me=0;room=newRoom();const p=pc2;wire(p.createDataChannel('g'));$('go').textContent='Connect';
   showRoom();ns('Creating room…');
@@ -486,10 +527,10 @@ async function hostRoom(){
   const c=await code();let used=false;
   relaySub(async m=>{
     if(m.k!=='answer'||used||p!==pc2)return;used=true;
-    try{const o=await decSafe(m.c);await p.setRemoteDescription({type:o.type,sdp:o.sdp});closeRel();ns('Friend found. Connecting…');watchConn()}catch(e){used=false}
+    try{const o=await dec(m.c);await p.setRemoteDescription({type:o.type,sdp:o.sdp});closeRel();ns('Connecting…');watchConn()}catch(e){used=false}
   });
-  try{await relayPub('offer',c);ns('Room is open. Give your friend the code and wait here.')}
-  catch(e){closeRel();ns('Could not reach the relay. Use manual connect below.')}
+  try{await relayPub('offer',c);ns('Room open.')}
+  catch(e){closeRel();ns('Failed.')}
 }
 function joinRoom(raw){
   raw=String(raw||'');const m=raw.match(/room=([A-Za-z0-9]{6})/),c=(m?m[1]:raw).toUpperCase().replace(/[^A-Z0-9]/g,'');
@@ -497,16 +538,16 @@ function joinRoom(raw){
   closeRel();hideRoom();setupJoin();room=c;let got=false;$('rin').value=c;
   ns('Looking for room '+c+'…');
   relaySub(m=>{if(m.k!=='offer'||got)return;got=true;clearTimeout(jt);$('i').value=m.c;$('go').click()});
-  jt=setTimeout(()=>{if(!got){closeRel();ns('No open room '+c+'. Check the code, or ask the host to create a new room.')}},8000);
+  jt=setTimeout(()=>{if(!got){closeRel();ns('No open room '+c+'.')}},8000);
 }
 $('rmk').onclick=hostRoom;$('rjn').onclick=()=>joinRoom($('rin').value);
 $('rin').onkeydown=e=>{if(e.key=='Enter')joinRoom($('rin').value)};
 $('rin').addEventListener('paste',e=>{const t=(e.clipboardData||window.clipboardData).getData('text');if(/room=[A-Za-z0-9]{6}/.test(t)){e.preventDefault();joinRoom(t)}});
 const roomLink=()=>location.href.split('#')[0]+'#room='+room;
-const flash=async(b,t,el)=>{const o=b.textContent,ok=await copy(t,el);b.textContent=ok?'Copied ✓':'Select and copy';setTimeout(()=>b.textContent=o,1500)};
+const flash=async(b,t,el)=>{const o=b.textContent,ok=await copy(t,el);b.textContent=ok?'Copied ✓':'Copy';setTimeout(()=>b.textContent=o,1500)};
 $('rcpy').onclick=()=>flash($('rcpy'),room,$('rcode'));
 $('rlnk').onclick=()=>flash($('rlnk'),roomLink());
-$('rshr').onclick=async()=>{try{await navigator.share(canLink?{title:'Sprouts',text:'Join my Sprouts game:',url:roomLink()}:{text:'Join my Sprouts game. Room code: '+room})}catch(e){}};
+$('rshr').onclick=async()=>{try{await navigator.share({text:'Room code: '+room})}catch(e){}};
 $('th').onclick=()=>th(document.documentElement.dataset.theme=='dark'?'light':'dark');
 let t0;try{t0=localStorage.getItem('sp-theme')}catch(e){}
 th(t0||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'));
