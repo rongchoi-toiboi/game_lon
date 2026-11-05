@@ -68,11 +68,15 @@ body[data-ph=lobby] .sheet,body[data-ph=lobby] .bar,body[data-ph=count] .sheet,b
 #rin::placeholder{letter-spacing:.06em;font-weight:500}
 #net details{margin-top:8px}#net .row span{color:var(--mut)}
 .auto-match-box { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; background: color-mix(in srgb, var(--paper) 50%, transparent); padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line); }
+.leaderboard-box { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-top: 10px; }
+.leaderboard-table { width: 100%; border-collapse: collapse; margin-top: 8px; text-align: left; font-size: 0.9rem; }
+.leaderboard-table th, .leaderboard-table td { padding: 6px 10px; border-bottom: 1px solid var(--line); }
+.leaderboard-table th { color: var(--mut); font-weight: 600; }
 </style></head><body data-ph="lobby"><main>
 <header><h1>Sprouts</h1><p>Draw curves, grow new spots, and leave your opponent without a move.</p><span class="sp"></span><button id="mu"></button><button id="th"></button></header>
 <section class="players">
 <div class="pl" id="c0" style="--c:var(--p1)"><i></i><input id="p0" maxlength="16" value="Player 1" aria-label="Player 1 name"><em id="t0" hidden></em><button class="rd" id="r0"></button><span class="clk" id="k0"></span></div>
-<div class="pl" id="c1" style="--c:var(--p2)"><i></i><input id="p1" maxlength="16" value="Player 2" aria-label="Player 2 name"><em id="t1" hidden></em><button class="rd" id="r1"></button><span class="clk" id="k1"></span></div>
+<div class="pl" id="c1" style="--c:var(--p2)"><i></i><input id="p1" maxlength="16" value="Player 2" aria-label="Player 2 name"><em id="t1" hidden></em><button class="rd" id="r1"></button><span class="clk" id="r1"></button><span class="clk" id="k1"></span></div>
 </section>
 <div id="st" role="status"></div>
 <section class="lob" id="lobby">
@@ -85,6 +89,23 @@ body[data-ph=lobby] .sheet,body[data-ph=lobby] .bar,body[data-ph=count] .sheet,b
     </div>
     <span id="autoMatchStatus" style="font-weight: 500; color: var(--mut); text-align: center;">Bấm để tìm đối thủ online</span>
   </div>
+
+  <div class="leaderboard-box">
+    <h3 style="margin: 0; font-size: 1rem; color: var(--ink);">🏆 Bảng Xếp Hạng Elo Top 10</h3>
+    <table class="leaderboard-table">
+      <thead>
+        <tr>
+          <th>Hạng</th>
+          <th>Người chơi</th>
+          <th style="text-align: right;">Elo</th>
+        </tr>
+      </thead>
+      <tbody id="leaderboardBody">
+        <tr><td colspan="3" style="text-align:center; color: var(--mut);">Đang tải dữ liệu...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
   <p id="lm"></p>
   <div class="lrow"><label>Spots <select id="n"><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label><label>Minutes per player <input id="tm" type="number" min="0" max="999" step="any" value="5" inputmode="decimal" aria-label="Minutes per player, 0 for no limit"></label><small>0 = no time limit</small></div>
   <p>Rules lock once the match starts.</p>
@@ -133,11 +154,12 @@ try {
     me = seat;
     const myName = $('playerNameInput').value.trim() || ('Player ' + (seat + 1));
     const oppName = data.opponentName || ('Player ' + (seat === 0 ? 2 : 1));
+    const oppElo = data.opponentElo || 1200;
     
     names[seat] = myName;
-    names[seat ^ 1] = oppName;
+    names[seat ^ 1] = `${oppName} (${oppElo})`;
     $('p' + seat).value = myName;
-    $('p' + (seat ^ 1)).value = oppName;
+    $('p' + (seat ^ 1)).value = names[seat ^ 1];
 
     $('autoMatchStatus').textContent = `🎉 Đã tìm thấy đối thủ (${oppName})! Bạn là Player ${seat + 1}`;
     toLobby();
@@ -146,14 +168,39 @@ try {
     sendSocket({ t: 'rdy', i: seat, v: true });
     sendSocket({ t: 'name', i: seat, v: myName });
   });
+  socket.on('leaderboard_data', (list) => {
+    const tbody = $('leaderboardBody');
+    if (!tbody) return;
+    if (!list || list.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="3" style="text-align:center; color: var(--mut);">Chưa có xếp hạng</td></tr>';
+      return;
+    }
+    tbody.innerHTML = list.map((p, idx) => `
+      <tr>
+        <td style="font-weight: 700;">#${idx + 1}</td>
+        <td>${p.name}</td>
+        <td style="text-align: right; font-weight: 700; color: var(--p2);">${p.elo}</td>
+      </tr>
+    `).join('');
+  });
   socket.on('game_action', (msg) => {
     recv({ data: JSON.stringify(msg) });
   });
   socket.on('opponent_left', () => {
     alert('Đối thủ đã rời khỏi trận đấu.');
+    resetAutoMatchBtn();
     location.reload();
   });
 } catch(e) { console.log('Server Socket.io disconnected or local mode.'); }
+
+function resetAutoMatchBtn() {
+  const btn = $('btnAutoMatch');
+  const input = $('playerNameInput');
+  const status = $('autoMatchStatus');
+  if (btn) btn.disabled = false;
+  if (input) input.disabled = false;
+  if (status) status.textContent = 'Bấm để tìm đối thủ online';
+}
 
 $('btnAutoMatch').onclick = () => {
   const pName = $('playerNameInput').value.trim() || 'Player';
@@ -170,8 +217,17 @@ $('btnAutoMatch').onclick = () => {
 function sendSocket(obj) {
   if (socket) socket.emit('game_action', obj);
 }
-
-function tone(f,d=.12,ty='sine',v=.15,at=0,f2){if(mute)return;try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();if(ac.state=='suspended')ac.resume();const t=ac.currentTime+at,o=ac.createOscillator(),a=ac.createGain();o.type=ty;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);a.gain.setValueAtTime(.0001,t);a.gain.exponentialRampToValueAtTime(v,t+.01);a.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(a);a.connect(ac.destination);o.start(t);o.stop(t+d+.05)}catch(e){}}
+function toLobby(s){
+  if(s)send({t:'lobby'});
+  clearTimeout(cdt);lt++;
+  $('lot').hidden=$('cd').hidden=$('bn').hidden=true;
+  spots=[];lines=[];hist=[];fx.length=0;over=tout=rz=go=false;
+  cur=null;rdy=[false,false];
+  setPh('lobby');
+  resetAutoMatchBtn();
+  info();
+  draw();
+}
 const SND={
  tick:()=>tone(900,.04,'square',.03),ready:()=>{tone(520,.08,'triangle',.15);tone(780,.1,'triangle',.15,.07)},unready:()=>tone(520,.1,'triangle',.12,0,330),
  cd:()=>tone(440,.15,'sine',.2),chime:()=>{tone(784,.3,'triangle',.18);tone(1175,.4,'triangle',.14,.08)},
@@ -377,7 +433,15 @@ function info(){
     :seat>=0&&turn!=seat?[t('Waiting for '),b(turn),t(' to move…')]
     :[b(turn),t((seat>=0?', your turn: ':': ')+'draw a curve between two spots, or loop one back to itself. Moves so far: '+mv+'.')]));
   clocks();$('nw').textContent=over?'Back to lobby':rzA?'Sure? Resign':'Resign';$('nw').disabled=ph!='play'||(!over&&!go);
-  if(over&&ph=='play'&&!ended){ended=true;endFx()}
+  if(over&&ph=='play'&&!ended){
+    ended=true;
+    endFx();
+    resetAutoMatchBtn();
+    if(socket && seat === 0) {
+      socket.emit('game_over', { winnerRole: w });
+    }
+  }
+}
 }
 function draw(){
   g.setTransform(D,0,0,D,0,0);g.clearRect(0,0,W,H);
