@@ -113,13 +113,11 @@ body[data-ph=lobby] .sheet,body[data-ph=lobby] .bar,body[data-ph=count] .sheet,b
 <p>Both players start in the lobby: choose the rules, then each press Ready. Once both are ready the match begins, a quick draw picks who moves first, and names and rules stay locked. The host can set the clock to any number of minutes (0 for no limit). Each player has a clock that runs only on their turn, and running out of time loses the game. Use the Dark mode button at the top to switch themes.</p>
 </details>
 <details id="net"><summary>Play on two devices (P2P / WebRTC Manual)</summary>
-<p>Host presses <b>Create room</b> and shares the 6-character code (or link). The other player types the code and presses <b>Join room</b>. That's it: the two devices find each other and connect. The host is player 1 and chooses the rules; once connected you meet in the lobby and both press Ready.</p>
 <div class="row"><button id="rmk" class="pri">Create room</button><span>or</span><input id="rin" maxlength="40" placeholder="ROOM CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Room code"><button id="rjn">Join room</button></div>
 <div class="row"><label><input type="checkbox" id="stun"> Different networks (needs internet)</label></div>
 <div class="row" id="rbox" hidden><span>Room</span><input id="rcode" class="big" readonly size="7" aria-label="Your room code"><button id="rcpy">Copy code</button><button id="rlnk" hidden>Copy link</button><button id="rshr" hidden>Share</button></div>
 <p id="ns" role="status"></p>
 <details id="man"><summary>Connect manually (no relay needed)</summary>
-<p>If the relay is unreachable, <b>Host</b> creates an invite (a link when this page is online, otherwise a code) and copies it. Send it over; the other player opens the link or presses <b>Paste</b>. They send their reply back and the host presses <b>Paste</b>.</p>
 <div class="row"><button id="host">Host</button><button id="join">Join</button></div>
 <label for="o">Code to send</label><textarea id="o" readonly></textarea><div class="row"><button id="cp">Copy</button><button id="sh" hidden>Share</button></div>
 <label for="i">Code received</label><textarea id="i" placeholder="Paste the invite or reply here"></textarea><div class="row"><button id="pa">Paste</button><button id="go" disabled>Connect</button></div>
@@ -135,7 +133,7 @@ let spots,lines,turn,over,hist,cur,dc,pc2,go=false,tout=false,lim=0,clk=[0,0],la
 const names=['Player 1','Player 2'],ptr=new Map();
 let ph='lobby',rdy=[false,false],cdt=0,rz=false,rzA=false,ended=false,warned=false,lsec=-1,bt=0,fxr=false,mute=false,ac;const fx=[];
 try{mute=localStorage.getItem('sp-mute')=='1'}catch(e){}
-// ---- sound (synthesised, no files) ----
+
 function tone(f,d=.12,ty='sine',v=.15,at=0,f2){if(mute)return;try{ac=ac||new(window.AudioContext||window.webkitAudioContext)();if(ac.state=='suspended')ac.resume();const t=ac.currentTime+at,o=ac.createOscillator(),a=ac.createGain();o.type=ty;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);a.gain.setValueAtTime(.0001,t);a.gain.exponentialRampToValueAtTime(v,t+.01);a.gain.exponentialRampToValueAtTime(.0001,t+d);o.connect(a);a.connect(ac.destination);o.start(t);o.stop(t+d+.05)}catch(e){}}
 const SND={
  tick:()=>tone(900,.04,'square',.03),ready:()=>{tone(520,.08,'triangle',.15);tone(780,.1,'triangle',.15,.07)},unready:()=>tone(520,.1,'triangle',.12,0,330),
@@ -148,7 +146,7 @@ const SND={
  buzz:()=>tone(120,.5,'sawtooth',.15),bad:()=>tone(160,.08,'square',.06)};
 const snd=(k,a)=>SND[k]&&SND[k](a);
 function setMute(v){mute=v;try{localStorage.setItem('sp-mute',v?'1':'0')}catch(e){}$('mu').textContent=v?'🔇 Sound off':'🔊 Sound on'}
-// ---- visual effects ----
+
 function banner(t,c,ms=1100){const e=$('bn'),b=document.createElement('b');b.textContent=t;e.style.setProperty('--c',c||'');e.style.setProperty('--d',ms+'ms');e.replaceChildren(b);e.hidden=false;clearTimeout(bt);bt=setTimeout(()=>e.hidden=true,ms)}
 function burst(x,y,col,n=14,v=2.5,life=700,ring=1){const t=performance.now();if(ring)fx.push({x,y,col,t,life,ring:1});for(let i=0;i<n;i++){const a=Math.random()*6.283,s=v*(.4+Math.random());fx.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,col,t,life:life*(.6+Math.random()*.6)})}if(!fxr){fxr=true;requestAnimationFrame(fxStep)}}
 function fxStep(){const now=performance.now();for(let i=fx.length;i--;)if(now-fx[i].t>fx[i].life)fx.splice(i,1);draw();if(fx.length)requestAnimationFrame(fxStep);else fxr=false}
@@ -158,7 +156,7 @@ function endFx(){const w=turn^1,col=pc(w),mine=seat<0||seat==w;lt++;if(tout)snd(
  for(let k=0;k<6;k++)setTimeout(()=>{const q=wld([Math.random()*W,Math.random()*H]);burst(q[0],q[1],col,18,3,1000)},k*180);
  if(socket && seat >= 0) socket.emit('game_over', { winner: w });
 }
-// ---- lobby / ready / countdown ----
+
 function setPh(p){ph=p;document.body.dataset.ph=p;lobbyUI()}
 function lobbyUI(){
   const L=ph=='lobby';
@@ -405,7 +403,7 @@ addEventListener('resize',draw);
 
 [0,1].forEach(i=>$('p'+i).oninput=e=>{names[i]=e.target.value.trim()||'Player '+(i+1);info();send({t:'name',i,v:names[i]})});
 
-// ---- Socket.io & Automatic Matchmaking ----
+// ---- Socket.io Logic ----
 let isSearching = false;
 function resetMatchBtn() {
   isSearching = false;
@@ -439,12 +437,17 @@ if (socket) {
     seat = data.role;
     names[seat] = $('pNameInput').value || 'An Huy';
     names[seat ^ 1] = data.opponent;
-    $('p0').value = names[0];
-    $('p1').value = names[1];
-    $('matchStatusMsg').textContent = `🎉 Đã ghép trận thành công!`;
+    $('p' + seat).value = names[seat];
+    $('p' + (seat ^ 1)).value = names[seat ^ 1];
+    $('matchStatusMsg').textContent = `🎉 Đã tìm thấy đối thủ: ${data.opponent}`;
+    
+    // Đặt sẵn trạng thái sẵn sàng cho 2 máy và kích hoạt ván đấu chuẩn
     rdy = [true, true];
     setPh('lobby');
-    runCount();
+    if (seat === 0) {
+      send({ t: 'count' });
+      runCount();
+    }
   });
 
   socket.on('leaderboard_update', (data) => {
