@@ -1,46 +1,68 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: { origin: "*" }
+});
 
-// Phục vụ các file tĩnh trong cùng thư mục
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname)));
 
-let waitingPlayer = null; // Lưu người chơi đang chờ tìm trận
+let waitingPlayer = null;
+let rooms = {};
 
 io.on('connection', (socket) => {
-    console.log('Có người chơi kết nối:', socket.id);
+  console.log('Player connected:', socket.id);
 
-    // Khi người chơi bấm tìm trận ngẫu nhiên
-    socket.on('find_match', () => {
-        if (waitingPlayer && waitingPlayer.id !== socket.id) {
-            const roomId = 'room_' + Math.random().toString(36).substr(2, 9);
-            
-            socket.join(roomId);
-            waitingPlayer.join(roomId);
+  // Người dùng bấm nút Tìm trận tự động
+  socket.on('find_match', () => {
+    if (waitingPlayer && waitingPlayer.id !== socket.id) {
+      // Đã có 1 người đang chờ -> Ghép 2 người vào 1 phòng
+      const roomId = 'room_' + waitingPlayer.id + '_' + socket.id;
+      const p1 = waitingPlayer;
+      const p2 = socket;
 
-            // Báo cho cả 2 máy tìm thấy đối thủ
-            io.to(roomId).emit('match_found', { roomId, p1: waitingPlayer.id, p2: socket.id });
+      waitingPlayer = null;
 
-            waitingPlayer = null;
-        } else {
-            waitingPlayer = socket;
-            socket.emit('waiting', { message: 'Đang tìm kiếm đối thủ ngẫu nhiên...' });
-        }
-    });
+      p1.join(roomId);
+      p2.join(roomId);
 
-    socket.on('disconnect', () => {
-        if (waitingPlayer === socket) {
-            waitingPlayer = null;
-        }
-        console.log('Người chơi ngắt kết nối:', socket.id);
-    });
+      rooms[p1.id] = roomId;
+      rooms[p2.id] = roomId;
+
+      // Báo cho 2 máy biết đã tìm thấy đối thủ
+      p1.emit('match_found', { role: 0, roomId }); // Player 1 (Red)
+      p2.emit('match_found', { role: 1, roomId }); // Player 2 (Blue)
+    } else {
+      // Chưa có ai -> Đưa người này vào danh sách chờ
+      waitingPlayer = socket;
+      socket.emit('waiting_for_match');
+    }
+  });
+
+  // Truyền trạng thái bàn cờ giữa 2 máy
+  socket.on('game_action', (data) => {
+    const roomId = rooms[socket.id];
+    if (roomId) {
+      socket.to(roomId).emit('game_action', data);
+    }
+  });
+
+  // Xử lý khi ngắt kết nối
+  socket.on('disconnect', () => {
+    if (waitingPlayer && waitingPlayer.id === socket.id) {
+      waitingPlayer = null;
+    }
+    const roomId = rooms[socket.id];
+    if (roomId) {
+      socket.to(roomId).emit('opponent_left');
+      delete rooms[socket.id];
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`Server đang chạy tại cổng ${PORT}`);
-});
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
