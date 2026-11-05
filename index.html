@@ -77,9 +77,13 @@ body[data-ph=lobby] .sheet,body[data-ph=lobby] .bar,body[data-ph=count] .sheet,b
 <div id="st" role="status"></div>
 <section class="lob" id="lobby">
   <h2>Lobby</h2>
-  <div class="auto-match-box">
-    <button id="btnAutoMatch" class="match-btn">⚡ Tìm trận nhanh (Ghép tự động)</button>
-    <span id="autoMatchStatus" style="font-weight: 500; color: var(--mut);">Bấm để tìm đối thủ online</span>
+  <div class="auto-match-box" style="flex-direction: column; align-items: stretch; gap: 10px;">
+    <div style="display: flex; gap: 10px; align-items: center;">
+      <label style="font-weight: 600; white-space: nowrap;">Tên của bạn:</label>
+      <input id="playerNameInput" type="text" maxlength="16" value="Player" style="flex: 1; padding: 8px 12px; font-weight: 600; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink);" placeholder="Nhập tên của bạn...">
+      <button id="btnAutoMatch" class="match-btn">⚡ Tìm trận nhanh (Ghép tự động)</button>
+    </div>
+    <span id="autoMatchStatus" style="font-weight: 500; color: var(--mut); text-align: center;">Bấm để tìm đối thủ online</span>
   </div>
   <p id="lm"></p>
   <div class="lrow"><label>Spots <select id="n"><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label><label>Minutes per player <input id="tm" type="number" min="0" max="999" step="any" value="5" inputmode="decimal" aria-label="Minutes per player, 0 for no limit"></label><small>0 = no time limit</small></div>
@@ -117,21 +121,30 @@ const names=['Player 1','Player 2'],ptr=new Map();
 let ph='lobby',rdy=[false,false],cdt=0,rz=false,rzA=false,ended=false,warned=false,lsec=-1,bt=0,fxr=false,mute=false,ac;const fx=[];
 try{mute=localStorage.getItem('sp-mute')=='1'}catch(e){}
 
-// ---- Socket.io Auto Matchmaking Integration ----
+// ---- Socket.io Auto Matchmaking Integration with Player Name ----
 let socket = null;
 try {
   socket = io();
   socket.on('waiting_for_match', () => {
-    $('autoMatchStatus').textContent = '🔍 Đang trong hàng chờ tìm đối thủ...';
+    $('autoMatchStatus').textContent = '🔍 Đang trong hàng chờ tìm đối thủ... Vui lòng đợi!';
   });
   socket.on('match_found', (data) => {
     seat = data.role;
     me = seat;
-    $('autoMatchStatus').textContent = `🎉 Đã ghép trận thành công! Bạn là Player ${seat + 1}`;
+    const myName = $('playerNameInput').value.trim() || ('Player ' + (seat + 1));
+    const oppName = data.opponentName || ('Player ' + (seat === 0 ? 2 : 1));
+    
+    names[seat] = myName;
+    names[seat ^ 1] = oppName;
+    $('p' + seat).value = myName;
+    $('p' + (seat ^ 1)).value = oppName;
+
+    $('autoMatchStatus').textContent = `🎉 Đã tìm thấy đối thủ (${oppName})! Bạn là Player ${seat + 1}`;
     toLobby();
     $('net').open = false;
     setRdy(seat, true);
     sendSocket({ t: 'rdy', i: seat, v: true });
+    sendSocket({ t: 'name', i: seat, v: myName });
   });
   socket.on('game_action', (msg) => {
     recv({ data: JSON.stringify(msg) });
@@ -143,10 +156,12 @@ try {
 } catch(e) { console.log('Server Socket.io disconnected or local mode.'); }
 
 $('btnAutoMatch').onclick = () => {
+  const pName = $('playerNameInput').value.trim() || 'Player';
   if (socket) {
     $('btnAutoMatch').disabled = true;
-    $('autoMatchStatus').textContent = '⌛ Đang ghép trận...';
-    socket.emit('find_match');
+    $('playerNameInput').disabled = true;
+    $('autoMatchStatus').textContent = '⌛ Đang đăng ký hàng chờ ghép trận...';
+    socket.emit('find_match', { name: pName });
   } else {
     alert('Không thể kết nối đến máy chủ ghép trận Server Render.');
   }
