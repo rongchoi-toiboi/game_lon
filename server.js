@@ -13,13 +13,22 @@ app.use(express.static(path.join(__dirname)));
 
 let waitingPlayer = null;
 let rooms = {};
-// Cấu trúc users: { socketId: { name, elo } }
-let users = {};
+let users = {}; // { socketId: { name, elo } }
+
+// Hàm tạo bàn cờ ngẫu nhiên từ Server
+function generateSpots(n = 3) {
+  const spots = [];
+  const W = 900, H = 600;
+  for (let t = 0; spots.length < n && t < 2000; t++) {
+    const p = { x: (Math.random() - .5) * (W - 140), y: (Math.random() - .5) * (H - 140), d: 0 };
+    if (spots.every(s => Math.hypot(s.x - p.x, s.y - p.y) > 100)) spots.push(p);
+  }
+  return spots;
+}
 
 io.on('connection', (socket) => {
   console.log('Player connected:', socket.id);
 
-  // Đăng ký tên và khởi tạo Elo
   socket.on('set_name', (data) => {
     const name = data && data.name ? String(data.name).trim().slice(0, 16) : 'Player';
     if (!users[socket.id]) {
@@ -30,7 +39,6 @@ io.on('connection', (socket) => {
     io.emit('leaderboard_update', getLeaderboard());
   });
 
-  // Xử lý Tìm trận
   socket.on('find_match', (data) => {
     const playerName = data && data.name ? String(data.name).trim().slice(0, 16) : 'Player';
     if (!users[socket.id]) {
@@ -39,7 +47,6 @@ io.on('connection', (socket) => {
       users[socket.id].name = playerName;
     }
 
-    // Nếu người chơi bấm lại khi đang chờ thì không xử lý trùng
     if (waitingPlayer && waitingPlayer.id === socket.id) return;
 
     if (waitingPlayer && waitingPlayer.connected) {
@@ -54,22 +61,33 @@ io.on('connection', (socket) => {
       rooms[p1.id] = { id: roomId, p1: p1.id, p2: p2.id };
       rooms[p2.id] = { id: roomId, p1: p1.id, p2: p2.id };
 
-      p1.emit('match_found', { role: 0, roomId, opponent: users[p2.id].name, opponentElo: users[p2.id].elo });
-      p2.emit('match_found', { role: 1, roomId, opponent: users[p1.id].name, opponentElo: users[p1.id].elo });
+      // Khởi tạo trạng thái game ban đầu
+      const initialSpots = generateSpots(3);
+      const initialTurn = Math.random() < 0.5 ? 0 : 1;
+
+      const matchData = {
+        roomId,
+        spots: initialSpots,
+        lines: [],
+        turn: initialTurn,
+        p1Name: users[p1.id].name,
+        p2Name: users[p2.id].name
+      };
+
+      p1.emit('match_found', { ...matchData, role: 0, opponent: users[p2.id].name });
+      p2.emit('match_found', { ...matchData, role: 1, opponent: users[p1.id].name });
     } else {
       waitingPlayer = socket;
       socket.emit('waiting_for_match');
     }
   });
 
-  // Hủy tìm trận
   socket.on('cancel_match', () => {
     if (waitingPlayer && waitingPlayer.id === socket.id) {
       waitingPlayer = null;
     }
   });
 
-  // Truyền nước đi
   socket.on('game_action', (data) => {
     const room = rooms[socket.id];
     if (room) {
@@ -77,7 +95,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Tính toán Elo khi ván đấu kết thúc
   socket.on('game_over', (data) => {
     const room = rooms[socket.id];
     if (room && data && data.winner !== undefined) {
@@ -92,7 +109,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Xử lý ngắt kết nối
   socket.on('disconnect', () => {
     if (waitingPlayer && waitingPlayer.id === socket.id) {
       waitingPlayer = null;
